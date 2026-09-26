@@ -152,8 +152,8 @@ def view(app) -> ft.Control:
     search.on_submit = do_search
     app.run(load_logs)
     return ui.screen(
-        "Food", ui.label("Today"), totals,
+        "Food", ui.section("Today"), totals,
         ft.Row([search, ft.IconButton(ft.Icons.SEARCH, on_click=do_search, tooltip="Search")]),
-        results, ui.label("Recent meals"), logs_box,
+        results, ui.section("Recent meals"), logs_box,
         subtitle="Nutrition values are estimates. Log what you ate to track your macros.",
     )

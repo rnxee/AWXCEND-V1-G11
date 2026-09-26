@@ -13,3 +13,4 @@ storage/
 *.log
 *.spec
 *.partial
+.pack/

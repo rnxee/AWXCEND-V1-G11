@@ -33,14 +33,16 @@ class App:
         self.bar = ft.NavigationBar(
             destinations=[ft.NavigationBarDestination(icon=i, selected_icon=s, label=t) for _, t, i, s in TABS],
             on_change=lambda e: self.go(TABS[e.control.selected_index][0]),
-            bgcolor=ui.C.panel, indicator_color=ui.fade(ui.C.primary, 0x33),
+            bgcolor=ui.fade(ui.C.panel, 0xf0), indicator_color=ui.fade(ui.C.primary, 0x40),
+            indicator_shape=ui.CHAMFER, shadow_color=ui.C.primary, elevation=8,
+            border=ft.Border(top=ft.BorderSide(1, ui.fade(ui.C.primary_bright, 0x55))),
         )
         self.rail = ft.NavigationRail(
             destinations=[ft.NavigationRailDestination(icon=i, selected_icon=s, label=t) for _, t, i, s in TABS],
             on_change=lambda e: self.go(TABS[e.control.selected_index][0]),
-            label_type=ft.NavigationRailLabelType.ALL, bgcolor=ui.C.panel, min_width=84,
+            label_type=ft.NavigationRailLabelType.ALL, bgcolor=ui.fade(ui.C.panel, 0xe0), min_width=84,
             leading=ft.Container(ft.Image(src="brand/awxcend-symbol.webp", width=40, height=40), padding=ft.Padding.only(top=12, bottom=12)),
-            indicator_color=ui.fade(ui.C.primary, 0x33),
+            indicator_color=ui.fade(ui.C.primary, 0x40), indicator_shape=ui.CHAMFER,
         )
 
     # ---- platform --------------------------------------------------------------
@@ -84,9 +86,8 @@ class App:
     def show_auth(self, screen: str = "login") -> None:
         self.leave()
         self.in_main = False
-        self.cleanups: list = []  # run when leaving a screen (e.g. release the camera)
         self.stack.clear()
-        self.page.controls[:] = [ft.SafeArea(auth.SCREENS[screen](self), expand=True)]
+        self.page.controls[:] = [ui.backdrop(ft.SafeArea(auth.SCREENS[screen](self), expand=True))]
         self.page.update()
 
     def show_main(self) -> None:
@@ -100,10 +101,13 @@ class App:
         idx = [k for k, *_ in TABS].index(self.tab)
         self.bar.selected_index = self.rail.selected_index = idx
         if wide:
-            main = ft.Row([self.rail, ft.VerticalDivider(width=1, color=ui.C.border), self.body], expand=True, spacing=0)
+            edge = ft.Container(width=1, gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
+                colors=[ui.fade(ui.C.primary_bright, 0x88), ui.fade(ui.C.accent, 0x55), ui.fade(ui.C.accent, 0)]))
+            main = ft.Row([self.rail, edge, self.body], expand=True, spacing=0)
         else:
             main = ft.Column([self.body, self.bar], expand=True, spacing=0)
-        self.page.controls[:] = [ft.SafeArea(main, expand=True)]
+        self.page.controls[:] = [ui.backdrop(ft.SafeArea(main, expand=True))]
 
     def on_resize(self, e=None) -> None:
         if self.in_main:

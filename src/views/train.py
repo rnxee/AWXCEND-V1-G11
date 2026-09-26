@@ -148,5 +148,5 @@ def view(app) -> ft.Control:
         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim),
     ], spacing=14), on_click=lambda e: open_camera(app), accent=ui.fade(ui.C.camera, 0x66))
 
-    return ui.screen("Train", camera, ui.label("Log a workout"), form,
+    return ui.screen("Train", camera, ui.section("Log a workout"), form,
                      subtitle="Every set you log earns XP toward your rank.")

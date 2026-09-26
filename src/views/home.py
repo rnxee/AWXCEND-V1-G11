@@ -32,18 +32,25 @@ def view(app) -> ft.Control:
     this_week = sum(1 for w in me.get("workouts", [])
                     if (w.get("logged_at") or "") >= week_ago.isoformat()[:19])
 
+    level = lvl.get("level", 1)
     hero = ui.card(ft.Column([
+        ft.Row([ui.diamond(ui.C.primary_bright, 7), ui.label("Status window", ui.C.primary_bright, 11)], spacing=8),
         ft.Row([
-            ui.avatar(p.get("username", "?"), 52, ui.C.accent),
-            ft.Column([ui.heading(f"Welcome back, {p.get('username', '')}", 18),
-                       ui.body(f"{ui.rank_text(p)} · {ui.FOCUS_LABEL.get(p.get('focus_type'), '')}", color=ui.C.accent)],
-                      spacing=2, expand=True),
-            ft.Column([ui.label("Level", size=11), ui.num(lvl.get("level", 1), 30, ui.C.primary_bright)],
-                      horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0),
-        ]),
-        ui.xp_bar((lvl.get("xpIntoLevel") or 0) / need),
-        ui.body(f"{lvl.get('xpToNextLevel', 0):,} XP to level {lvl.get('level', 1) + 1}", size=12),
-    ], spacing=10), padding=18, accent=ui.fade(ui.C.primary, 0x66))
+            ui.avatar(p.get("username", "?"), 60, ui.C.accent),
+            ft.Column([ui.body("Welcome back,", size=12),
+                       ui.heading(p.get("username", ""), 20),
+                       ft.Row([ui.tag(ui.rank_text(p), ui.C.gold),
+                               ui.tag(ui.FOCUS_LABEL.get(p.get("focus_type"), "Hybrid Athlete"), ui.C.accent)],
+                              spacing=6, wrap=True)],
+                      spacing=4, expand=True),
+            ft.Column([ui.label("Level", ui.C.dim, 10), ui.num(level, 40, ui.C.primary_bright)],
+                      horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0),
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ui.xp_bar((lvl.get("xpIntoLevel") or 0) / need, height=12),
+        ft.Row([ui.body(f"{lvl.get('xpIntoLevel', 0):,} / {need:,} XP", ui.C.text, 12),
+                ui.body(f"{lvl.get('xpToNextLevel', 0):,} XP to level {level + 1}", size=12)],
+               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+    ], spacing=12), padding=18)
 
     stats = ft.Row([
         ui.stat("Total XP", int(p.get("xp") or 0), ui.C.primary_bright, ft.Icons.BOLT),
@@ -52,10 +59,13 @@ def view(app) -> ft.Control:
     ], spacing=10)
 
     def action(text, icon, color, on_click):
-        return ui.card(ft.Column([ft.Icon(icon, color=color, size=26), ui.body(text, ui.C.text, 13, text_align=ft.TextAlign.CENTER)],
-                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
-                       padding=12, on_click=on_click, col={"xs": 4, "md": 2.4}, height=88,
-                       alignment=ft.Alignment.CENTER)
+        return ui.card(ft.Column([ui.icon_chip(icon, color, 40),
+                                  ft.Text(text, size=12, color=ui.C.text, font_family="LatoBold",
+                                          text_align=ft.TextAlign.CENTER)],
+                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                 alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                       padding=10, on_click=on_click, col={"xs": 4, "md": 2.4}, height=104,
+                       alignment=ft.Alignment.CENTER, accent=color)
 
     from views import coach, social, train  # local: avoids import cycles between screens
     actions = ft.ResponsiveRow([
@@ -97,7 +107,7 @@ def view(app) -> ft.Control:
 
     return ui.screen(
         "Dashboard", hero, stats, *friend_note,
-        ui.label("Quick actions"), actions,
-        ui.label("Recent workouts"), ui.card(recent_list),
+        ui.section("Quick actions"), actions,
+        ui.section("Recent workouts"), ui.card(recent_list),
         actions=[ft.IconButton(ft.Icons.REFRESH, on_click=refresh, tooltip="Refresh")],
     )

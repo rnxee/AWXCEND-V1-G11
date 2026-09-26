@@ -358,13 +358,13 @@ def friends(app) -> ft.Control:
             return
         rows: list[ft.Control] = []
         if res.get("incomingRequests"):
-            rows.append(ui.label("Requests", ui.C.accent))
+            rows.append(ui.section("Requests", ui.C.accent))
             rows += [person(r["user"], [
                 ui.button("Accept", lambda e, r=r: act("respond-friend-request", {"request_id": r["friendship_id"], "action": "accept"}, "Friend added."), kind="accent"),
                 ft.IconButton(ft.Icons.CLOSE, tooltip="Decline", on_click=lambda e, r=r: act(
                     "respond-friend-request", {"request_id": r["friendship_id"], "action": "decline"}, "Request declined.")),
             ]) for r in res["incomingRequests"]]
-        rows.append(ui.label(f"Friends ({len(res.get('friends', []))})"))
+        rows.append(ui.section(f"Friends ({len(res.get('friends', []))})"))
         rows += [person(f["user"], [
             ft.IconButton(ft.Icons.CHAT_OUTLINED, tooltip="Message", icon_color=ui.C.primary,
                           on_click=lambda e, f=f: app.open(dm, f["user"])),
@@ -372,7 +372,7 @@ def friends(app) -> ft.Control:
                           on_click=lambda e, f=f: confirm_remove(f["user"])),
         ]) for f in res.get("friends", [])] or [ui.empty("No friends yet. Search for people above.", ft.Icons.GROUP_ADD)]
         if res.get("outgoingRequests"):
-            rows.append(ui.label("Sent requests"))
+            rows.append(ui.section("Sent requests"))
             rows += [person(r["user"], [ui.body("Pending", size=12)]) for r in res["outgoingRequests"]]
         lists.controls = rows
         app.page.update()

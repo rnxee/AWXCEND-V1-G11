@@ -16,8 +16,9 @@ CAMERAS = [("0", "Webcam 1"), ("1", "Webcam 2"), ("2", "Webcam 3"), ("phone", "P
 PHONE_HELP = ("Phone over Wi-Fi: install IP Webcam (Android, free). In Video preferences set Video resolution to "
               "640x480 (bigger frames can't cross Wi-Fi fast enough and reps get lost), then tap Start server and "
               "type the address it shows. Keep the phone and this computer on the same Wi-Fi. Stand the phone "
-              "sideways (landscape): if the video here looks tipped over, push-ups can't be counted. Using Phone "
+              "sideways (landscape), or use Rotate video until you look upright here. Using Phone "
               "Link, DroidCam or Iriun instead? Your phone appears as Webcam 2 or 3.")
+ROTATE_OPTIONS = [("0", "Upright"), ("90", "Turn right 90°"), ("180", "Upside down"), ("270", "Turn left 90°")]
 MIN_GOOD_FPS = 18  # below this, fast reps can fall between frames
 
 
@@ -46,6 +47,16 @@ def view(app) -> ft.Control:
     phone_url = ui.field("Phone address (from the IP Webcam app)", hint_text="192.168.1.5:8080",
                          expand=True, visible=False)
     cam_help = ui.body(PHONE_HELP, size=12, visible=False)
+    # If the phone stands the other way the video arrives sideways; turning it upright lets every
+    # check (like push-ups' "body level with the floor") see you the right way up.
+    rotate = ui.dropdown("Rotate video", ROTATE_OPTIONS, "0", width=190)
+
+    def on_rotate(e=None):
+        if state["session"]:
+            state["session"].rotate = int(rotate.value)
+        app.page.run_task(app.prefs.set, "camera.rotate", rotate.value)
+
+    rotate.on_select = on_rotate
 
     def on_cam(e=None):
         phone_url.visible = cam_help.visible = cam.value == "phone"
@@ -55,6 +66,9 @@ def view(app) -> ft.Control:
 
     async def load_choice():
         choice, url = await app.prefs.get("camera.choice"), await app.prefs.get("camera.url")
+        turn = await app.prefs.get("camera.rotate")
+        if turn in dict(ROTATE_OPTIONS):
+            rotate.value = turn
         if choice in dict(CAMERAS):
             cam.value = choice
         phone_url.value = url or ""
@@ -97,7 +111,7 @@ def view(app) -> ft.Control:
             return
         app.page.run_task(app.prefs.set, "camera.choice", cam.value)
         app.page.run_task(app.prefs.set, "camera.url", phone_url.value.strip())
-        session = CameraSession(state["key"], on_frame, on_error, source=source)
+        session = CameraSession(state["key"], on_frame, on_error, source=source, rotate=int(rotate.value))
         state["session"] = session
         app.cleanups.append(halt)
         start.visible, stop.visible = False, True
@@ -142,7 +156,7 @@ def view(app) -> ft.Control:
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6), padding=14)
     return ui.screen(
         "Camera workout", picker,
-        ft.Row([cam, phone_url], spacing=10, wrap=False), cam_help,
+        ft.Row([cam, rotate], spacing=10, wrap=True), ft.Row([phone_url]), cam_help,
         ui.card(ft.Row([ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, color=ui.C.gold), tip], spacing=10), padding=12),
         stage, hud, ft.Row([start, stop], alignment=ft.MainAxisAlignment.CENTER),
         ui.body("Good light and your whole body in frame make counting reliable. "

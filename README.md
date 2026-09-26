@@ -9,7 +9,7 @@ A Python + [Flet](https://flet.dev) rebuild of the first version of AWXCEND, a g
 | Account | Sign up (with the privacy notice), log in, reset a password by pasting the emailed link |
 | Dashboard | Level and XP progress, rank, streak, quick actions, recent workouts |
 | Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones |
-| Camera (desktop) | Rep counting for push-ups, squats, lunges and bicep curls, using MediaPipe Pose. The video can come from a webcam or your phone (Phone Link / DroidCam / Iriun as a webcam, or the IP Webcam app over Wi-Fi) |
+| Camera (desktop) | Rep counting for push-ups, squats, lunges and bicep curls, using MediaPipe Pose. The video can come from a webcam or your phone (Phone Link / DroidCam / Iriun as a webcam, or the IP Webcam app over Wi-Fi). **Rotate video** turns a sideways phone feed upright |
 | Food | Search foods, log portions by grams or serving, and see today's calories and macros |
 | Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages, leaderboard |
 | AI coach | Advice from your recent training and meals, after you accept the AI notice |
@@ -36,7 +36,7 @@ py -m pytest
 
 ## Build
 
-**Windows app** (no Visual Studio needed, because it uses PyInstaller). The result is `dist\AWXCEND\AWXCEND.exe`. Zip the whole `dist\AWXCEND` folder to share it.
+**Windows app** (no Visual Studio needed, because it uses PyInstaller). The result is `dist\windows\AWXCEND\AWXCEND.exe`. Zip the whole `dist\windows\AWXCEND` folder to share it.
 
 ```powershell
 py -m pip install pyinstaller
@@ -51,9 +51,22 @@ To check any build by hand: `AWXCEND.exe --selfcheck result.txt` writes `ok …`
 
 ```powershell
 flet build apk --yes
+mkdir dist\android -Force; copy build\apk\awxcend.apk dist\android\
 ```
 
+`dist\android\awxcend.apk` is the file to install on the phone. Run the Windows and Android builds one after the other, not at the same time.
+
 The APK leaves out camera tracking, because MediaPipe for Python doesn't run on Android. `pyproject.toml` excludes the camera files from it. Every other screen works on the phone.
+
+## Design
+
+Every screen uses the same "System window" look from `src/ui.py`:
+- dark void background with blue and violet auras;
+- glass panels with a glowing edge and corner brackets (`ui.card`);
+- Michroma titles, `◆ SECTION` headers, and a segmented XP gauge;
+- chamfered neon buttons, and lit tabs.
+
+Change colours in `ui.C`, not in the views.
 
 ## How it works
 

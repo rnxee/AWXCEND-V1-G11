@@ -39,7 +39,9 @@ def reports(app) -> ft.Control:
                          ui.body(ui.when(r.get("created_at")), size=11)]),
                  ui.body(f"{r.get('reason', '').replace('_', ' ').title()} · reported by {reporter.get('username', 'deleted user')}", size=12)]
         if r.get("context_excerpt"):
-            parts.append(ui.card(ft.Text(f"“{r['context_excerpt']}”", color=ui.C.dim, italic=True), padding=10))
+            parts.append(ft.Container(ft.Text(f"“{r['context_excerpt']}”", color=ui.C.dim, italic=True),
+                                      padding=ft.Padding.only(left=12, top=4, bottom=4),
+                                      border=ft.Border(left=ft.BorderSide(2, ui.fade(ui.C.danger, 0x99)))))
         if r.get("details"):
             parts.append(ft.Text(r["details"], color=ui.C.text))
         parts.append(ft.Row([

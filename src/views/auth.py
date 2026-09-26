@@ -11,10 +11,14 @@ EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def _frame(app, *controls) -> ft.Control:
     logo = ft.Image(src="brand/awxcend-wordmark.webp", width=240, fit=ft.BoxFit.CONTAIN)
-    col = ft.Column([ft.Container(logo, alignment=ft.Alignment.CENTER, padding=ft.Padding.only(bottom=4)),
-                     ft.Container(ui.body("Awaken · Experience · Ascend", size=12), alignment=ft.Alignment.CENTER),
+    tagline = ft.Text("AWAKEN · EXPERIENCE · ASCEND", size=10, color=ui.C.dim, font_family="Michroma",
+                      style=ft.TextStyle(letter_spacing=2))
+    marker = ft.Row([ui.diamond(ui.C.primary_bright, 7), ui.label("System access", ui.C.primary_bright, 11)],
+                    spacing=8, alignment=ft.MainAxisAlignment.CENTER)
+    col = ft.Column([ft.Container(logo, alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=12, bottom=2)),
+                     ft.Container(tagline, alignment=ft.Alignment.CENTER), ft.Container(height=6), marker,
                      *controls], spacing=14, scroll=ft.ScrollMode.AUTO, width=420)
-    return ft.Container(col, alignment=ft.Alignment.TOP_CENTER, padding=24, expand=True)
+    return ft.Container(col, alignment=ft.Alignment.CENTER, padding=24, expand=True)
 
 
 def _busy(btn: ft.Control, on: bool, text: str) -> None:
@@ -55,7 +59,7 @@ def login(app) -> ft.Control:
         ft.Row([ui.button("Forgot password?", lambda e: app.show_auth("forgot"), kind="text"),
                 ui.button("Create account", lambda e: app.show_auth("signup"), kind="text")],
                alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
-    ], spacing=12), padding=20))
+    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), padding=20))
 
 
 def signup(app) -> ft.Control:
@@ -155,7 +159,7 @@ def signup(app) -> ft.Control:
         ft.Row([agree, ui.button("Read notice", read_notice, kind="text")], wrap=True),
         error, go_btn,
         ui.button("I already have an account", lambda e: app.show_auth("login"), kind="text"),
-    ], spacing=12), padding=20))
+    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), padding=20))
 
 
 def forgot(app) -> ft.Control:
@@ -207,7 +211,7 @@ def forgot(app) -> ft.Control:
     return _frame(app, ui.card(ft.Column([
         ui.heading("Reset your password", 20), email, info, step2, error, go_btn,
         ui.button("Back to log in", lambda e: app.show_auth("login"), kind="text"),
-    ], spacing=12), padding=20))
+    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), padding=20))
 
 
 SCREENS = {"login": login, "signup": signup, "forgot": forgot}

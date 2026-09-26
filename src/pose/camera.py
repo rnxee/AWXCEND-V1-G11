@@ -31,6 +31,14 @@ MAX_WIDTH = 720      # phone streams are often 1080p+: shrink before pose detect
 FEED_TIMEOUT_S = 5   # no frame for this long = the phone/webcam went away
 
 
+ROTATIONS = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def orient(frame, degrees: int):
+    """Turn a frame upright (a phone standing the other way sends sideways video). Clockwise degrees."""
+    return cv2.rotate(frame, ROTATIONS[degrees]) if degrees in ROTATIONS else frame
+
+
 class LatestFrame:
     """Reads the camera/stream nonstop on its own thread and keeps ONLY the newest frame.
 
@@ -77,11 +85,12 @@ class LatestFrame:
 
 class CameraSession:
     def __init__(self, exercise: str, on_frame: Callable, on_error: Callable[[str], None],
-                 source: int | str = 0, countdown: int = 3):
+                 source: int | str = 0, countdown: int = 3, rotate: int = 0):
         self.counter = RepCounter(exercise)
         self.exercise = exercise
         self.on_frame, self.on_error, self.countdown, self.source = on_frame, on_error, countdown, source
         self._stop = threading.Event()
+        self.rotate = rotate  # read every frame, so the picker can fix a sideways video mid-set
         self.rows: list[list] = []
         self.trace_path: Path | None = None
         self.reader: LatestFrame | None = None  # live stream stats for the UI
@@ -128,6 +137,7 @@ class CameraSession:
                         continue
                     skipped, seq = new_seq - seq - 1, new_seq
                     work_start = time.perf_counter()
+                    frame = orient(frame, self.rotate)
                     if frame.shape[1] > MAX_WIDTH:
                         scale = MAX_WIDTH / frame.shape[1]
                         frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)

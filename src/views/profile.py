@@ -14,11 +14,15 @@ def _header(p: dict, lvl: dict, color: str = ui.C.accent) -> ft.Control:
     return ui.card(ft.Column([
         ft.Row([ui.avatar(p.get("username", "?"), 64, color),
                 ft.Column([ui.heading(p.get("username", ""), 20),
-                           ui.body(f"{ui.rank_text(p)} · {ui.FOCUS_LABEL.get(p.get('focus_type'), '')}", color=color),
-                           ui.body(f"Level {lvl.get('level', 1)}", size=12)], spacing=2, expand=True)]),
+                           ft.Row([ui.tag(ui.rank_text(p), ui.C.gold),
+                                   ui.tag(ui.FOCUS_LABEL.get(p.get("focus_type"), "Hybrid Athlete"), color)],
+                                  spacing=6, wrap=True)], spacing=6, expand=True),
+                ft.Column([ui.label("Level", ui.C.dim, 10), ui.num(lvl.get("level", 1), 34, color)],
+                          horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)],
+               vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ui.body(p.get("bio") or "No bio yet.", color=ui.C.text if p.get("bio") else ui.C.faint),
-        ui.xp_bar((lvl.get("xpIntoLevel") or 0) / need, color),
-    ], spacing=12), padding=18, accent=ui.fade(color, 0x66))
+        ui.xp_bar((lvl.get("xpIntoLevel") or 0) / need, height=10),
+    ], spacing=12), padding=18, accent=color)
 
 
 def _attributes(p: dict) -> ft.Control:
@@ -89,9 +93,9 @@ def view(app) -> ft.Control:
         ft.Row([ui.stat("XP", int(p.get("xp") or 0), ui.C.primary_bright, ft.Icons.BOLT),
                 ui.stat("Workouts", len(me.get("workouts", [])), ui.C.text, ft.Icons.FITNESS_CENTER),
                 ui.stat("Gold", int(me.get("goldBalance") or 0), ui.C.gold, ft.Icons.PAID_OUTLINED)], spacing=10),
-        ui.label("Attributes"), _attributes(p),
-        *([ui.label("Body"), ui.card(ft.Row([ft.Column([ui.label(k, size=11), ft.Text(str(v), color=ui.C.text)], spacing=2)
-                                            for k, v in body_stats], spacing=28, wrap=True))] if body_stats else []),
+        ui.section("Attributes"), _attributes(p),
+        *([ui.section("Body"), ui.card(ft.Row([ft.Column([ui.label(k, size=11), ft.Text(str(v), color=ui.C.text)], spacing=2)
+                                            for k, v in body_stats], alignment=ft.MainAxisAlignment.SPACE_AROUND))] if body_stats else []),
         *links,
         actions=[ui.button("Edit", lambda e: edit_dialog(app), icon=ft.Icons.EDIT_OUTLINED, kind="ghost")],
     )
@@ -124,8 +128,8 @@ def public(app, user_id: str) -> ft.Control:
             _header(p, res.get("levelInfo") or {}, ui.C.primary_bright),
             ft.Row([action, ui.button("Report", lambda e: social.report_dialog(app, p["id"], p["username"]),
                                       icon=ft.Icons.FLAG_OUTLINED, kind="text")], wrap=True),
-            ui.label("Attributes"), _attributes(p),
-            ui.label("Recent workouts"),
+            ui.section("Attributes"), _attributes(p),
+            ui.section("Recent workouts"),
             ui.card(ft.Column([ft.Row([ft.Text(workout_line(w), color=ui.C.text, expand=True),
                                        ft.Text(f"+{w.get('xp_earned') or 0} XP", color=ui.C.primary_bright)])
                                for w in recent[:8]], spacing=10) if recent else ui.empty("No workouts yet.")),
