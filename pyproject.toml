@@ -1,0 +1,34 @@
+[project]
+name = "awxcend"
+version = "0.1.0"
+description = "AWXCEND - gamified fitness tracking (Python + Flet rebuild)"
+requires-python = ">=3.12"
+dependencies = [
+  "flet==0.86.5",
+  "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+# Camera workouts: desktop only. MediaPipe has no Android build, so the APK leaves these out.
+desktop = [
+  "opencv-python>=4.10",
+  "mediapipe>=0.10.35",
+]
+dev = ["pytest>=8"]
+
+[tool.flet]
+org = "com.awxcend"
+product = "AWXCEND"
+company = "AWXCEND"
+copyright = "AWXCEND group"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.android.app]
+# Camera tracking is desktop-only (MediaPipe has no Android build): leave its model and code out of the APK.
+exclude = ["assets/pose_landmarker_lite.task", "pose/camera.py", "views/camera.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
