@@ -76,6 +76,10 @@ Decisions we made at the start:
     - Build-script fixes.
     - Pushed to GitHub.
     - Fixed the APK carrying desktop-only files.
+11. **Release and phone test.**
+    - Published v1.0.0 on GitHub with the Windows and Android downloads.
+    - Connected the AI coach.
+    - Tested the APK on a real phone: every feature worked as intended.
 
 ## Problems we hit and how we solved them
 
@@ -106,6 +110,14 @@ Decisions we made at the start:
 - It applies the whole config file immediately.
 - Our first push failed because of the email-template setting.
 - We removed that setting, reviewed the full change, and pushed again.
+
+**5. The AI coach showed "offline" even with Ollama running.**
+- **Cause:** the app never talks to Ollama directly.
+  - It asks our Supabase server, which reaches Ollama through an ngrok tunnel.
+  - That tunnel is protected by a rule that rejects requests without a secret key.
+  - The new project was missing `OLLAMA_URL` and `OLLAMA_SECRET`: they were set on the web project but never on the new one. So the server looked for Ollama inside Supabase's own cloud, and the tunnel received zero requests.
+- **Fix:** we set both secrets on the new project. No redeploy was needed.
+- **Lesson:** when you clone a backend, list the old project's secrets and set every one on the new project, not just the database.
 
 ### Camera rep counting
 
@@ -305,4 +317,3 @@ The full reasons are in "What works where, and why" above.
 - **The Supabase project pauses after about a week of inactivity** (free plan). Restore it before a demo.
 - **The Windows app isn't code-signed,** so SmartScreen warns on the first run.
 - **Only the Windows and Android builds exist.** Mac, Linux and iPhone builds have to be made on those systems.
-- **The APK hasn't been tested on a real phone yet.**
