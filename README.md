@@ -2,6 +2,8 @@
 
 A Python + [Flet](https://flet.dev) rebuild of the first version of AWXCEND, a gamified fitness tracker: log workouts, earn XP, climb ranks, track meals, and train with friends.
 
+How we built it, the problems we hit and what we learned: [docs/REBUILD_JOURNAL.md](docs/REBUILD_JOURNAL.md).
+
 ## Features
 
 | Area | What it does |
