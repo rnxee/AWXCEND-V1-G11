@@ -213,6 +213,72 @@ The first version worked but looked "too plain and boring".
   - The only key in the repo is Supabase's *publishable* key, which is safe to share because Row Level Security protects the data.
   - The service key, the API keys and the `.env` files never enter the repo.
 
+## What works where, and why
+
+### How one Python app runs on both Windows and Android
+
+- **Flet draws every screen with Flutter,** Google's UI toolkit. That's why the same screens look the same on a laptop and a phone.
+- **On Windows,** the build (PyInstaller, via `flet pack`) packs a whole Python interpreter into the `AWXCEND` folder. It also packs our code, OpenCV, and MediaPipe's compiled libraries. Nothing needs to be installed on the PC.
+- **On Android,** the APK carries its own small Python interpreter and runs our code inside the app.
+- **All the data goes over the internet to our Supabase backend,** through `httpx`.
+  - `httpx` is written in plain Python, so it runs anywhere Python runs.
+  - The server decides XP, ranks, permissions and validation, so both apps behave the same.
+
+### Feature by feature
+
+| Feature | Windows | Android | Why |
+|---|---|---|---|
+| Sign up, log in, stay logged in | Yes | Yes | Plain web requests. The login is saved with Flet's shared preferences on both platforms |
+| Reset password | Yes | Yes | Paste the link from the email. On a phone, long-press the link, copy it, and paste it into the app |
+| Dashboard, XP, levels, ranks | Yes | Yes | Calculated by the server and shown by the app |
+| Log a workout | Yes | Yes | Plain web requests |
+| Camera rep counting | Yes | **No** | Needs MediaPipe and OpenCV, which have no Android build for Python (see "Why camera tracking only works on desktop") |
+| Phone as the camera | Yes | No | The phone films and the laptop counts. It's part of the desktop camera feature |
+| Food search and meal log | Yes | Yes | USDA and our food table, through the server |
+| Gymunnity feed and chat, friends, DMs | Yes | Yes | Plain web requests. New messages are fetched every 5 s in chat and every 4 s in DMs, only while that screen is open |
+| **Posting a photo** | Any photo | **Only a JPEG under 2 MB** | The server accepts JPEGs up to about 2 MB. On desktop the app shrinks and converts photos with OpenCV. OpenCV isn't in the phone app, so it can only send a photo that's already small enough. Photos from a phone camera are often bigger |
+| Leaderboard, profiles | Yes | Yes | Plain web requests |
+| AI coach | Yes* | Yes* | *Only while the leader's Ollama AI server and tunnel are running |
+| Admin panel | Yes | Yes | Checked by the server for every action |
+| Macs and Linux | Untested | — | The code allows the camera on any desktop, but a Mac or Linux build has to be made on that system, and we only have Windows |
+| iPhone | — | Not built | Building for iPhone needs a Mac with Xcode |
+
+### Limits of Python + Flet that we ran into
+
+1. **Libraries with compiled code need a separate build for each platform.**
+   - Plain-Python libraries such as `httpx` work everywhere.
+   - MediaPipe and OpenCV are mostly C++. Their Python packages come ready-made for Windows, Mac and Linux, but not for Python on Android.
+   - Because of that, camera counting and photo resizing only exist on desktop.
+2. **No live camera stream into Python.** Flet 0.86 has no camera widget that hands video frames to our code. On desktop we read the webcam with OpenCV instead.
+3. **Big apps.**
+   - Each app carries a whole Python interpreter plus Flutter's engine.
+   - The APK is 143 MB. The Windows folder is 311 MB, mostly because of MediaPipe and OpenCV.
+   - A web app is far smaller, because the browser already has everything.
+4. **Building needs a heavy setup.**
+   - Flet's own Windows build needs Visual Studio, so we used PyInstaller instead.
+   - The Android build needs Windows Developer Mode and several GB of downloads (Flutter, Java, the Android SDK), and we had to install the SDK by hand.
+   - Mac and iPhone builds need a Mac.
+5. **The Windows app isn't code-signed,** so Windows SmartScreen shows a warning the first time it runs. The fix is **More info → Run anyway**.
+6. **Anything inside the app can be read by someone who unpacks it.**
+   - That's why the app only contains the *publishable* Supabase key.
+   - Every rule is enforced on the server, never trusted to the app.
+7. **No push notifications, and no offline mode.**
+   - Messages only arrive while the chat screen is open.
+   - The app needs the internet for almost everything.
+8. **Flet is young and changes fast.**
+   - Version 0.86 changed many names from older tutorials. Some examples we found online didn't match.
+   - It also has the quirks listed above. We pinned `flet==0.86.5` so an update can't break the build.
+
+### Limits that come from our services, not from Flet
+
+- **Supabase's free plan:**
+  - it can't customise emails;
+  - it only sends a few emails per hour;
+  - it **pauses a project after about a week with no activity.** Open the Supabase dashboard and restore it before a demo if it's been quiet.
+- **The USDA demo key is rate-limited.** A free personal key from api.data.gov raises the limit.
+- **The AI coach runs on the leader's own PC** through Ollama and a tunnel. When that PC is off, the AI coach is unavailable.
+- **Camera sets are saved as manual logs** after you confirm the count. The server only gives camera XP to exercises that have passed its validation, and our Python counters haven't been through that process.
+
 ## What we'd do again, and what we'd do differently
 
 **Again:**
@@ -228,9 +294,16 @@ The first version worked but looked "too plain and boring".
 
 ## Known limitations (as of 27 September 2026)
 
-- **Camera tracking is desktop-only.** See "Why camera tracking only works on desktop" above. Use the phone as the camera for the desktop app.
-- **Camera sets are saved as manual logs** after you confirm the count, because the server only gives camera XP to exercises that have passed its validation.
-- **The AI coach needs the leader's Ollama server running,** reachable through a tunnel.
-- **Food search uses the USDA demo key,** which is rate-limited. A free personal key raises the limit.
+The full reasons are in "What works where, and why" above.
+
+- **Camera tracking is desktop-only.** Use the phone as the camera for the desktop app.
+- **The phone app can only post photos that are already JPEGs under 2 MB.**
+- **Camera sets are saved as manual logs** after you confirm the count.
+- **The AI coach only works while the leader's Ollama server and tunnel are running.**
+- **Food search uses the USDA demo key,** which is rate-limited.
 - **Password reset works by pasting the emailed link** into the app.
+- **There are no push notifications and no offline mode.** Chat updates every few seconds while it's open.
+- **The Supabase project pauses after about a week of inactivity** (free plan). Restore it before a demo.
+- **The Windows app isn't code-signed,** so SmartScreen warns on the first run.
+- **Only the Windows and Android builds exist.** Mac, Linux and iPhone builds have to be made on those systems.
 - **The APK hasn't been tested on a real phone yet.**
