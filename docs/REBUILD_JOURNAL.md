@@ -38,7 +38,6 @@ Decisions we made at the start:
 
 ## How we worked
 
-- The team leader built the app with **Claude Code**, an AI coding assistant, as a pair programmer. Commits it helped write are marked "Co-Authored-By".
 - **We planned first**, then built in phases, and each phase ended with something runnable.
 - **We tested the logic that's easy to get wrong first:** the rep counters and the backend client.
 - **We mutation-checked the tests:**
