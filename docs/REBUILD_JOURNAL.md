@@ -156,7 +156,31 @@ Every fix below came from replaying a real recorded set. Each of those sets is n
   - Flet's packager only skips a path that matches exactly, and on Windows it writes paths with backslashes (`pose\camera.py`). Our list used forward slashes, so nothing was skipped.
   - We now list each path both ways, and the APK went from 148 to 143 MB.
   - **Lesson:** open the package and look inside it.
-- **There's no camera tracking on Android:** MediaPipe for Python has no Android build. The phone app shows everything else.
+- **There's no camera tracking on Android.** See the next section for why. The phone app hides the camera screen and shows everything else.
+
+### Why camera tracking only works on desktop
+
+This was a deliberate decision at the start of the project, not a missing feature. There are three reasons:
+
+1. **The pose-detection library has no Android version for Python.**
+   - Camera counting uses Google's MediaPipe to find your joints in each video frame.
+   - MediaPipe publishes ready-made versions of its Python package only for Windows, Mac and Linux.
+   - Flet runs our Python code on the phone, but it can only use libraries that have an Android version. On a phone the camera code can't even load.
+2. **Flet can't stream the phone's live camera into Python.**
+   - Flet 0.86 has no camera widget that hands video frames to our code.
+   - On desktop we read the webcam with OpenCV, which has the same Android problem.
+3. **Speed.**
+   - Even if both worked, pose detection in Python on a phone would likely be too slow.
+   - Our counts already went wrong whenever the video dropped below about 18 frames per second.
+
+**What to do instead:** use the phone *as the camera* for the desktop app.
+- The phone films you over Wi-Fi with the IP Webcam app, set to 640×480.
+- The laptop does the counting.
+- Every real set we tested used this setup.
+
+**Ways to get camera counting on Android later.** Each would be a project of its own:
+- **A native Android part.** MediaPipe has an official Android library, just not for Python. We would write a custom Flet extension in Dart or Kotlin that uses it.
+- **The original web app.** It runs MediaPipe in the browser, so its camera works on phones.
 
 ### Flet quirks (version 0.86)
 
@@ -204,7 +228,7 @@ The first version worked but looked "too plain and boring".
 
 ## Known limitations (as of 27 September 2026)
 
-- **Camera tracking is desktop-only.**
+- **Camera tracking is desktop-only.** See "Why camera tracking only works on desktop" above. Use the phone as the camera for the desktop app.
 - **Camera sets are saved as manual logs** after you confirm the count, because the server only gives camera XP to exercises that have passed its validation.
 - **The AI coach needs the leader's Ollama server running,** reachable through a tunnel.
 - **Food search uses the USDA demo key,** which is rate-limited. A free personal key raises the limit.
