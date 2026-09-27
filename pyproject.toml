@@ -27,7 +27,13 @@ path = "src"
 
 [tool.flet.android.app]
 # Camera tracking is desktop-only (MediaPipe has no Android build): leave its model and code out of the APK.
-exclude = ["assets/pose_landmarker_lite.task", "pose/camera.py", "views/camera.py"]
+# The packager skips a path only on an exact match with the OS path separator, so each is listed both ways.
+exclude = [
+  "assets/pose_landmarker_lite.task", 'assets\pose_landmarker_lite.task',
+  "pose/camera.py", 'pose\camera.py', "views/camera.py", 'views\camera.py',
+  ".ruff_cache", "views/.ruff_cache", 'views\.ruff_cache',
+  "__pycache__", "pose/__pycache__", 'pose\__pycache__', "views/__pycache__", 'views\__pycache__',
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
