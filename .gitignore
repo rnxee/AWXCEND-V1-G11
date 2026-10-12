@@ -1,16 +1,57 @@
-__pycache__/
-*.pyc
+# ==============================================================================
+# CCCS 106: Essential .gitignore for Python & Flet Projects
+# Prevents accidental commits of virtual environments, bytecode, and OS artifacts.
+# ==============================================================================
+
+# 1. Virtual Environments (CRITICAL TO IGNORE)
 .venv/
 venv/
+ENV/
+env/
+.env/
+env.bak/
+venv.bak/
+
+# 2. Python Bytecode & Cache Files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# 3. Flet Build & Packaging Artifacts
 build/
 dist/
-.pytest_cache/
-.ruff_cache/
-.env
-.env.*
-*.local
-storage/
-*.log
 *.spec
-*.partial
-.pack/
+*.exe
+*.apk
+*.ipa
+.flet/
+
+# 4. Environment Variables & Credentials
+.env
+.env.local
+*.pem
+*.key
+.DS_Store
+
+# 5. Operating System Metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# 6. IDE & Editor Specific Files
+.idea/
+*.swp
+*.swo
+*~
+# Allow VS Code workspace settings, but ignore personal workspace state
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
