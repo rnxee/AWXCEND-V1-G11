@@ -136,7 +136,7 @@ def view(app) -> ft.Control:
             if not 1 <= r <= 300:
                 app.toast("Reps must be 1-300.", error=True)
                 return
-            app.page.pop_dialog()
+            app.close_dialog()
             w = float(weight_f.value) if weight_f.value else None
             log_workout(app, {"exercise": ex.log_as, "sets": 1, "reps": r, "weight_kg": w})
 
@@ -145,7 +145,7 @@ def view(app) -> ft.Control:
             content=ft.Column([ui.body(f"The camera counted {counted} rep{'s' if counted != 1 else ''}. "
                                        "Fix the number if it missed any, then save."),
                                ft.Row([rep_f, weight_f], spacing=10)], tight=True, spacing=12, width=420),
-            actions=[ui.button("Discard", lambda e: app.page.pop_dialog(), kind="text"),
+            actions=[ui.button("Discard", lambda e: app.close_dialog(), kind="text"),
                      ui.button("Save set", save, icon=ft.Icons.CHECK, kind="camera")]))
 
     start.on_click, stop.on_click = begin, finish

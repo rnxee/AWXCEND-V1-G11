@@ -6,11 +6,20 @@ one refresh-and-retry; if the refresh fails too, the session is cleared (signed 
 import re
 import threading
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import unquote
 
 import httpx
 
 Session = dict[str, Any]
+
+# Supabase Auth errors whose own wording doesn't tell the user what to do next.
+AUTH_ERRORS = {
+    "email_address_not_authorized": "The app's email service can't send to this address yet, so no reset email "
+                                    "was sent. Ask the AWXCEND team for help.",
+    "over_email_send_rate_limit": "Too many emails were sent recently. Wait a few minutes (up to an hour) and "
+                                  "try again.",
+    "otp_expired": "That reset link has expired or was already used. Send yourself a new one.",
+}
 
 
 class ApiError(Exception):
@@ -21,15 +30,19 @@ class ApiError(Exception):
 
 
 def _error_from(res: httpx.Response) -> ApiError:
-    if res.status_code == 429:
-        return ApiError("Too many requests - slow down and try again in a minute.", 429)
     try:
         body = res.json()
     except ValueError:
         body = {}
     if not isinstance(body, dict):
         body = {}
-    code = body.get("code")
+    # Edge functions send a text `code`; Supabase Auth sends `error_code` (its `code` is the HTTP status).
+    code = body.get("error_code") or body.get("code")
+    code = code if isinstance(code, str) else None
+    if code in AUTH_ERRORS:
+        return ApiError(AUTH_ERRORS[code], res.status_code, code)
+    if res.status_code == 429:
+        return ApiError("Too many requests - slow down and try again in a minute.", 429)
     if body.get("errors"):
         msg = ", ".join(map(str, body["errors"]))
     else:
@@ -64,6 +77,8 @@ class Api:
     def _send(self, method: str, url: str, **kw) -> httpx.Response:
         try:
             return self.http.request(method, url, **kw)
+        except httpx.TimeoutException as e:
+            raise ApiError("The server took too long to answer. Try again in a moment.") from e
         except httpx.HTTPError as e:
             raise ApiError("Can't reach the server. Check your connection and try again.") from e
 
@@ -107,20 +122,25 @@ class Api:
         self._auth("recover", {"email": email})
 
     def recover(self, email: str, pasted: str) -> None:
-        """Sign in from a password-reset email, whatever the user pasted: the email's link, the
-        address the browser landed on after opening it, or a code (if the project emails codes)."""
-        text = pasted.strip()
-        url = urlsplit(text)
-        query, fragment = parse_qs(url.query), parse_qs(url.fragment)
+        """Sign in from a password-reset email, whatever the user pasted: the email's link (also when a
+        mail scanner such as Outlook Safe Links wrapped it), the address the browser landed on after
+        opening it, or a code (if the project emails codes)."""
+        text = unquote(pasted.strip())  # a wrapped link carries the real one URL-encoded inside it
+        found = dict(re.findall(r"[?&#](token|access_token|refresh_token|type|error|error_description)=([^&#\s]+)",
+                                text))
         digits = re.sub(r"\s", "", text)
-        if query.get("type") == ["recovery"] and query.get("token"):
-            self.set_session(self._auth("verify", {"type": "recovery", "token_hash": query["token"][0]}))
-        elif fragment.get("access_token") and fragment.get("refresh_token"):
-            token = fragment["access_token"][0]
+        if found.get("type") == "recovery" and found.get("token"):
+            self.set_session(self._auth("verify", {"type": "recovery", "token_hash": found["token"]}))
+        elif found.get("access_token") and found.get("refresh_token"):
+            token = found["access_token"]
             user = self._auth("user", method="GET", bearer=token)
-            self.set_session({"access_token": token, "refresh_token": fragment["refresh_token"][0], "user": user})
+            self.set_session({"access_token": token, "refresh_token": found["refresh_token"], "user": user})
         elif digits.isdigit() and 6 <= len(digits) <= 10:
             self.set_session(self._auth("verify", {"type": "recovery", "email": email, "token": digits}))
+        elif found.get("error"):  # the page the link opened says why it failed (usually: expired or used)
+            why = found.get("error_description", "").replace("+", " ")
+            raise ApiError(f"That reset link didn't work: {why}. Send yourself a new one." if why
+                           else AUTH_ERRORS["otp_expired"])
         else:
             raise ApiError("Paste the whole reset link from the email (or the page address it opened).")
 
@@ -137,11 +157,13 @@ class Api:
 
     # ---- edge functions ------------------------------------------------------
     def call(self, fn: str, method: str = "GET", body: Any = None,
-             params: dict | None = None, anon: bool = False) -> Any:
+             params: dict | None = None, anon: bool = False, timeout: float | None = None) -> Any:
+        """timeout: seconds, for the few calls that legitimately run longer than the 30 s default."""
+        extra = {"timeout": timeout} if timeout else {}
         for attempt in (1, 2):
             token = self.key if anon or not self.session else self.session["access_token"]
             res = self._send(method, f"{self.url}/functions/v1/{fn}", json=body, params=params,
-                             headers={"Authorization": f"Bearer {token}"})
+                             headers={"Authorization": f"Bearer {token}"}, **extra)
             if res.status_code == 401 and attempt == 1 and self.session and not anon:
                 self.refresh()
                 continue

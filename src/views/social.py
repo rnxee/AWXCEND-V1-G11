@@ -53,7 +53,7 @@ def report_dialog(app, user_id: str, username: str, message: dict | None = None,
         body = {"reported_user_id": user_id, "reason": reason["v"], "details": details.value.strip()}
         if message:
             body.update(message_type=kind, message_id=message["id"])
-        app.page.pop_dialog()
+        app.close_dialog()
 
         def work():
             try:
@@ -69,7 +69,7 @@ def report_dialog(app, user_id: str, username: str, message: dict | None = None,
         content=ft.Column([*quote, ui.label("Reason"),
                            ui.chips(REPORT_REASONS, "", lambda k: reason.update(v=k)), details],
                           tight=True, spacing=10, width=440, scroll=ft.ScrollMode.AUTO),
-        actions=[ui.button("Cancel", lambda e: app.page.pop_dialog(), kind="text"),
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
                  ui.button("Send report", send, kind="danger")]))
 
 
@@ -198,7 +198,7 @@ def feed(app) -> ft.Control:
 
     def confirm_delete(p):
         def go(e):
-            app.page.pop_dialog()
+            app.close_dialog()
 
             def work():
                 try:
@@ -210,7 +210,7 @@ def feed(app) -> ft.Control:
             app.run(work)
         app.page.show_dialog(ft.AlertDialog(title=ft.Text("Delete this post?"),
                                             content=ft.Text("The post and its photo are removed for good."),
-                                            actions=[ui.button("Keep", lambda e: app.page.pop_dialog(), kind="text"),
+                                            actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
                                                      ui.button("Delete", go, kind="danger")]))
 
     def switch(tab):
@@ -270,7 +270,7 @@ def new_post(app, tab: str, on_posted) -> None:
             body.update({k: float(m.value) for k, m in macros.items()}, ingredients=ingredients.value.strip() or None)
         if state["image"]:
             body["image_base64"] = base64.b64encode(state["image"]).decode()
-        app.page.pop_dialog()
+        app.close_dialog()
 
         def work():
             try:
@@ -289,7 +289,7 @@ def new_post(app, tab: str, on_posted) -> None:
                            ft.Row([ui.button("Add photo", pick_photo, icon=ft.Icons.PHOTO_OUTLINED, kind="ghost"),
                                    photo_note], wrap=True)],
                           tight=True, spacing=12, width=480),
-        actions=[ui.button("Cancel", lambda e: app.page.pop_dialog(), kind="text"), ui.button("Post", submit)]))
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Post", submit)]))
 
 
 # ---- chat ---------------------------------------------------------------------------
@@ -313,8 +313,8 @@ def chat(app) -> ft.Control:
         app.page.show_dialog(ft.AlertDialog(
             title=ft.Text(m.get("username", "")),
             content=ft.Text(m.get("message", ""), color=ui.C.dim),
-            actions=[ui.button("View profile", lambda e: (app.page.pop_dialog(), open_profile(app, m["user_id"])), kind="text"),
-                     ui.button("Report", lambda e: (app.page.pop_dialog(),
+            actions=[ui.button("View profile", lambda e: (app.close_dialog(), open_profile(app, m["user_id"])), kind="text"),
+                     ui.button("Report", lambda e: (app.close_dialog(),
                                                     report_dialog(app, m["user_id"], m.get("username", ""), m, "chat")),
                                kind="text")]))
 
@@ -379,11 +379,11 @@ def friends(app) -> ft.Control:
 
     def confirm_remove(u):
         def go(e):
-            app.page.pop_dialog()
+            app.close_dialog()
             act("remove-friend", {"friend_id": u["id"]}, f"Removed {u['username']}.")
         app.page.show_dialog(ft.AlertDialog(title=ft.Text(f"Remove {u['username']}?"),
                                             content=ft.Text("You won't be able to message each other until you're friends again."),
-                                            actions=[ui.button("Cancel", lambda e: app.page.pop_dialog(), kind="text"),
+                                            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
                                                      ui.button("Remove", go, kind="danger")]))
 
     def do_search_work(q):
@@ -416,7 +416,8 @@ def friends(app) -> ft.Control:
 
     search.on_submit = do_search
     app.run(load)
-    return ft.Column([ft.Row([search, ft.IconButton(ft.Icons.SEARCH, on_click=do_search)]), results, lists], spacing=12)
+    return ft.Column([ft.Row([search, ft.IconButton(ft.Icons.SEARCH, on_click=do_search, tooltip="Search")]),
+                      results, lists], spacing=12)
 
 
 def dm(app, friend: dict) -> ft.Control:

@@ -105,7 +105,7 @@ def users(app) -> ft.Control:
                  if is_admin and not mine else ui.body((u.get("role") or "user").title()))
         return ui.card(ft.Row([ui.avatar(u.get("username", "?"), 34),
                                ft.Column([ft.Text(u.get("username", ""), color=ui.C.text, font_family="LatoBold"),
-                                          ui.body(f"{u.get('rank') or 'Unranked'} · joined {ui.when(u.get('created_at'))[:6]}", size=12)],
+                                          ui.body(f"{u.get('rank') or 'Unranked'} · joined {ui.when(u.get('created_at')).split(',')[0]}", size=12)],
                                          spacing=0, expand=True), right]), padding=10)
 
     search.on_submit = lambda e: app.run(load, search.value.strip())
@@ -119,10 +119,12 @@ BUILDERS = {"reports": reports, "posts": posts, "users": users}
 
 def view(app) -> ft.Control:
     holder = ft.Container(reports(app))
+    # Listing users and changing roles are admin-only on the server: a moderator would only see an error.
+    sections = SECTIONS if app.me["profile"].get("role") == "admin" else SECTIONS[:2]
 
     def switch(key):
         holder.content = BUILDERS[key](app)
         app.page.update()
 
-    return ui.screen("Admin panel", ui.chips(SECTIONS, "reports", switch), holder,
+    return ui.screen("Admin panel", ui.chips(sections, "reports", switch), holder,
                      subtitle=f"Signed in as {app.me['profile'].get('role')}.")

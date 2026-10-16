@@ -23,22 +23,27 @@ def view(app) -> ft.Control:
 
     def consent_card():
         def accept(e):
+            if not notice.get("version"):
+                app.toast("Couldn't load the AI notice. Go back and open the AI coach again.", error=True)
+                return
+
             def work():
                 try:
                     app.api.call("privacy", "POST", {"action": "acknowledge", "consent_type": "ai_features",
                                                      "notice_version": notice["version"]})
-                except (ApiError, KeyError) as ex:
-                    app.toast(str(ex) or "Couldn't save your choice.", error=True)
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
                     return
                 box.controls = [ask_card()]
                 app.page.update()
             app.run(work)
 
+        # The notice flows with the page (which scrolls): a fixed-height box let it run under the button.
         return ui.card(ft.Column([
             ui.heading(notice.get("title", "AI features notice"), 16),
-            ft.Container(ft.Markdown(notice.get("body", "")), height=280),
+            ft.Markdown(notice.get("body", "")),
             ui.button("I understand - turn on the AI coach", accept, kind="accent"),
-        ], spacing=12, scroll=ft.ScrollMode.AUTO), accent=ui.fade(ui.C.accent, 0x66))
+        ], spacing=12), accent=ui.fade(ui.C.accent, 0x66))
 
     def ask_card():
         answer = ft.Column(spacing=12)
@@ -52,7 +57,8 @@ def view(app) -> ft.Control:
 
         def work():
             try:
-                res = app.api.call("get-suggestions", "POST")
+                # Edge Functions are stopped at 150 s: wait a bit longer so the server's own error arrives
+                res = app.api.call("get-suggestions", "POST", timeout=160)
             except ApiError as ex:
                 msg = str(ex)
                 if ex.status == 502:

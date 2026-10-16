@@ -5,6 +5,9 @@ import flet as ft
 
 import ui
 from api import ApiError
+from views.train import EXERCISES
+
+NAMES = dict(EXERCISES)
 
 
 def _streak(me: dict) -> int:
@@ -15,10 +18,14 @@ def _streak(me: dict) -> int:
 
 
 def workout_line(w: dict) -> str:
-    name = (w.get("exercise") or "").replace("_", " ").title()
+    ex = w.get("exercise") or ""
+    name = NAMES.get(ex) or ex.replace("_", " ").title()
     if w.get("duration_seconds"):
-        return f"{name} · {round(w['duration_seconds'] / 60)} min"
-    parts = [name, f"{w.get('sets') or 1}×{w.get('reps') or 0}"]
+        s = int(w["duration_seconds"])
+        return f"{name} · {s // 60}:{s % 60:02d}"  # a 45 s plank is "0:45", not "1 min"
+    if not w.get("reps"):  # public profiles don't send a timed set's duration: show the exercise alone
+        return name
+    parts = [name, f"{w.get('sets') or 1}×{w['reps']}"]
     if w.get("weight_kg"):
         parts.append(f"{w['weight_kg']:g} kg")
     return " · ".join(parts)

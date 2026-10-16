@@ -51,7 +51,7 @@ def edit_dialog(app) -> None:
                 "weight_kg": float(weight.value) if weight.value else None,
                 "height_cm": float(height.value) if height.value else None,
                 "age": int(age.value) if age.value else None, "sex": sex.value, "goal": goal.value}
-        app.page.pop_dialog()
+        app.close_dialog()
 
         def work():
             try:
@@ -68,7 +68,7 @@ def edit_dialog(app) -> None:
         title=ft.Text("Edit profile"), scrollable=True,
         content=ft.Column([username, bio, path, ui.body("You can change your path once every 30 days.", size=12),
                            ft.Row([weight, height]), ft.Row([age, sex]), goal], tight=True, spacing=12, width=460),
-        actions=[ui.button("Cancel", lambda e: app.page.pop_dialog(), kind="text"), ui.button("Save", save)]))
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
 
 
 def view(app) -> ft.Control:

@@ -72,6 +72,12 @@ def test_failed_refresh_signs_out():
     (400, {"success": False, "error": "Username taken", "code": "USERNAME_TAKEN"}, "USERNAME_TAKEN", "Username taken"),
     (429, {"error": "Too many requests"}, None, "slow down"),
     (400, {"msg": "Invalid login credentials"}, None, "Invalid login credentials"),
+    # Supabase Auth: `code` is the HTTP status, the real code is `error_code`
+    (400, {"code": 400, "error_code": "email_address_not_authorized",
+           "msg": 'Email address "a@example.com" cannot be used as it is not authorized'},
+     "email_address_not_authorized", "ask the awxcend team"),
+    (429, {"code": 429, "error_code": "over_email_send_rate_limit", "msg": "Email rate limit exceeded"},
+     "over_email_send_rate_limit", "up to an hour"),
 ])
 def test_errors_become_readable_messages(status, body, code, msg):
     api, _ = make(lambda req: httpx.Response(status, json=body))
@@ -80,6 +86,18 @@ def test_errors_become_readable_messages(status, body, code, msg):
         api.call("log-workout", "POST", {"exercise": "squat"})
     assert e.value.code == code
     assert msg.lower() in str(e.value).lower()
+
+
+def test_a_slow_call_gets_its_own_timeout_and_says_so():
+    def handler(req):
+        assert req.extensions["timeout"]["read"] == 160
+        raise httpx.ReadTimeout("slow", request=req)
+
+    api, _ = make(handler)
+    api.set_session(session(1))
+    with pytest.raises(ApiError) as e:
+        api.call("get-suggestions", "POST", timeout=160)
+    assert "too long" in str(e.value)
 
 
 def test_network_failure_is_a_friendly_error():
@@ -129,6 +147,31 @@ def test_recover_with_a_code():
     api, _ = make(handler)
     api.recover("a@example.com", " 123 456 ")
     assert api.user_id == "u1"
+
+
+def test_recover_with_a_link_wrapped_by_a_mail_scanner():
+    wrapped = ("https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.supabase.co%2Fauth%2Fv1"
+               "%2Fverify%3Ftoken%3Dabc123%26type%3Drecovery%26redirect_to%3Dhttp%253A%252F%252Flocalhost%253A3000"
+               "&data=05%7C02%7C&reserved=0")
+
+    def handler(req):
+        assert json.loads(req.content) == {"type": "recovery", "token_hash": "abc123"}
+        return httpx.Response(200, json=session(5))
+
+    api, _ = make(handler)
+    api.recover("a@example.com", wrapped)
+    assert api.session["access_token"] == "tok5"
+
+
+def test_recover_says_when_the_link_has_expired():
+    def handler(req):
+        raise AssertionError("no request expected")
+
+    api, _ = make(handler)
+    with pytest.raises(ApiError) as e:
+        api.recover("a@example.com", "http://localhost:3000/#error=access_denied&error_code=otp_expired"
+                                     "&error_description=Email+link+is+invalid+or+has+expired")
+    assert "Email link is invalid or has expired" in str(e.value)  # the page's own reason, readable
 
 
 @pytest.mark.parametrize("junk", ["", "hello", "https://example.com/page", "http://localhost:3000/#error=access_denied"])

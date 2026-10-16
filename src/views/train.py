@@ -39,7 +39,7 @@ def show_result(app, res: dict) -> None:
     app.page.show_dialog(ft.AlertDialog(
         title=ft.Text("Workout logged"),
         content=ft.Column(lines, tight=True, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        actions=[ui.button("Nice", lambda e: app.page.pop_dialog())]))
+        actions=[ui.button("Nice", lambda e: app.close_dialog())]))
 
     def refresh():
         try:
@@ -70,7 +70,7 @@ def open_camera(app) -> None:
         app.page.show_dialog(ft.AlertDialog(
             title=ft.Text("Camera workouts"),
             content=ft.Text("Camera rep counting runs on the AWXCEND desktop app. On your phone, use Log workout."),
-            actions=[ui.button("OK", lambda e: app.page.pop_dialog(), kind="text")]))
+            actions=[ui.button("OK", lambda e: app.close_dialog(), kind="text")]))
         return
     try:
         from views import camera  # desktop only: pulls in OpenCV + MediaPipe
