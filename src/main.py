@@ -28,6 +28,7 @@ class App:
         self.tab = "home"
         self.stack: list[ft.Control] = []  # sub-screens opened over the current tab
         self.in_main = False
+        self.wide: bool | None = None  # which shell is showing: side rail (True) or bottom bar (False)
         self.cleanups: list = []  # run when leaving a screen (e.g. release the camera)
         self.body = ft.Container(expand=True)
         self.bar = ft.NavigationBar(
@@ -61,6 +62,12 @@ class App:
     def toast(self, message: str, error: bool = False) -> None:
         self.page.show_dialog(ft.SnackBar(ft.Text(message, color=ui.C.text),
                                           bgcolor=ui.fade(ui.C.danger, 0xdd) if error else ui.C.panel_alt))
+
+    def close_dialog(self) -> None:
+        """Close the open dialog. A toast is a dialog too: page.pop_dialog() alone would close a toast
+        showing over a form and leave the form open, so a second tap would save twice."""
+        while isinstance(self.page.pop_dialog(), ft.SnackBar):
+            pass
 
     # ---- session ---------------------------------------------------------------
     def _on_session(self, session: dict | None) -> None:
@@ -97,7 +104,7 @@ class App:
         self.go(self.tab)
 
     def layout(self) -> None:
-        wide = (self.page.width or 0) >= WIDE
+        wide = self.wide = (self.page.width or 0) >= WIDE
         idx = [k for k, *_ in TABS].index(self.tab)
         self.bar.selected_index = self.rail.selected_index = idx
         if wide:
@@ -110,7 +117,9 @@ class App:
         self.page.controls[:] = [ui.backdrop(ft.SafeArea(main, expand=True))]
 
     def on_resize(self, e=None) -> None:
-        if self.in_main:
+        # Only crossing the WIDE line changes the shell. Rebuilding it on every resize event re-sent the
+        # whole page many times a second while a desktop window was being dragged.
+        if self.in_main and ((self.page.width or 0) >= WIDE) != self.wide:
             self.layout()
             self.page.update()
 
@@ -170,9 +179,13 @@ async def main(page: ft.Page):
     def restore():
         try:
             app.load_me()
-        except ApiError:
-            app.api.session = None
+        except ApiError as ex:
+            if ex.status:  # the server turned this saved login down: forget it
+                app.api.set_session(None)
+            else:  # offline: keep the saved login for the next launch
+                app.api.session = None
             app.show_auth()
+            app.toast(str(ex), error=True)  # why the login screen, e.g. no connection or session expired
         else:
             app.show_main()
 

@@ -2,7 +2,7 @@
 abyss-black world with two soft auras, blue-glass panels with a glowing edge and corner brackets,
 chamfered buttons, segmented game gauges, Michroma titles. Every screen builds from these widgets."""
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 import flet as ft
 
@@ -175,13 +175,14 @@ def card(content: ft.Control, padding: int = 16, on_click=None, accent: str | No
                      bracket(right=0, bottom=0), top_rule], fit=ft.StackFit.PASS_THROUGH, **layout)
 
 
-def stat(caption: str, value, color: str = C.text, icon: ft.IconData | None = None) -> ft.Control:
-    """Stat tile: icon chip, big glowing number, caption under it (fits a third of a phone screen)."""
+def stat(caption: str, value, color: str = C.text, icon: ft.IconData | None = None, **layout) -> ft.Control:
+    """Stat tile: icon chip, big glowing number, caption under it (fits a third of a phone screen).
+    Shares a Row by default; pass `col=` to place it in a ResponsiveRow instead."""
     head = [icon_chip(icon, color, 28)] if icon else []
     return card(ft.Column([*head, num(value, 22, color),
                            ft.Text(caption.upper(), size=10, color=C.dim, font_family="LatoBold", no_wrap=True,
                                    overflow=ft.TextOverflow.ELLIPSIS, style=ft.TextStyle(letter_spacing=1))],
-                          spacing=4), padding=12, expand=True, accent=color)
+                          spacing=4), padding=12, accent=color, **(layout or {"expand": True}))
 
 
 def xp_bar(progress: float, color: str = C.primary, height: int = 10, segments: int = 10,
@@ -216,7 +217,9 @@ def field(lbl: str, **kw) -> ft.TextField:
 
 
 def number_field(lbl: str, value="", decimals: bool = False, **kw) -> ft.TextField:
-    pattern = r"^\d*\.?\d{0,2}$" if decimals else r"^\d*$"
+    # Flet refuses a keystroke that would break the pattern. A lone "." got through before, and float(".")
+    # then crashed whichever form read the field; ".5" is still allowed (backspacing "7.5" passes it).
+    pattern = r"^(\d+\.?\d{0,2}|\.\d{1,2})?$" if decimals else r"^\d*$"
     return field(lbl, value=str(value), keyboard_type=ft.KeyboardType.NUMBER,
                  input_filter=ft.InputFilter(regex_string=pattern, allow=True), **kw)
 
@@ -318,9 +321,12 @@ def screen(heading_text: str, *controls: ft.Control, actions: list[ft.Control] |
 
 
 def when(iso: str) -> str:
-    """Server timestamp -> local 'Sep 26, 3:04 PM'."""
+    """Server timestamp -> local 'Sep 26, 3:04 PM'. A timestamp without a zone is UTC: some columns
+    (workout_logs.logged_at, chat_messages.created_at, users.created_at) store UTC without saying so."""
     try:
-        t = datetime.fromisoformat((iso or "").replace("Z", "+00:00")).astimezone()
+        t = datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
     except ValueError:
         return ""
-    return t.strftime("%b %d, %I:%M %p").replace(" 0", " ")
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone().strftime("%b %d, %I:%M %p").replace(" 0", " ")

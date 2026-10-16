@@ -26,10 +26,10 @@ def _is_today(iso: str) -> bool:
 
 
 def view(app) -> ft.Control:
-    totals = ft.Row(spacing=10)
+    totals = ft.ResponsiveRow(spacing=10, run_spacing=10)
     logs_box = ft.Column([ui.loading()], spacing=10)
     results = ft.Column(spacing=8)
-    search = ui.field("Search foods (e.g. chicken breast, kanin)", prefix_icon=ft.Icons.SEARCH, expand=True)
+    search = ui.field("Search foods (e.g. kanin)", prefix_icon=ft.Icons.SEARCH, expand=True)  # one line on phones
 
     def load_logs():
         try:
@@ -40,11 +40,12 @@ def view(app) -> ft.Control:
             return
         today = [l for l in logs if _is_today(l.get("logged_at", ""))]
         sums = {k: sum(float(l.get(k) or 0) for l in today) for k in ("calories", "protein", "carbs", "fat")}
+        tile = {"col": {"xs": 6, "sm": 3}}  # 2 x 2 on phones: four numbers side by side broke mid-number
         totals.controls = [
-            ui.stat("kcal", round(sums["calories"]), ui.C.gold),
-            ui.stat("Protein", f"{sums['protein']:.0f} g", ui.C.food),
-            ui.stat("Carbs", f"{sums['carbs']:.0f} g", ui.C.primary_bright),
-            ui.stat("Fat", f"{sums['fat']:.0f} g", ui.C.accent),
+            ui.stat("kcal", round(sums["calories"]), ui.C.gold, **tile),
+            ui.stat("Protein", f"{sums['protein']:.0f} g", ui.C.food, **tile),
+            ui.stat("Carbs", f"{sums['carbs']:.0f} g", ui.C.primary_bright, **tile),
+            ui.stat("Fat", f"{sums['fat']:.0f} g", ui.C.accent, **tile),
         ]
         logs_box.controls = [
             ui.card(ft.Row([
@@ -126,7 +127,7 @@ def view(app) -> ft.Control:
                 body["usda_fdc_id"] = int(f["usda_fdc_id"])
             if chosen["label"]:
                 body["serving_label"] = chosen["label"]
-            app.page.pop_dialog()
+            app.close_dialog()
             app.run(save_work, body)
 
         rows = [ui.body(f"Per 100 g: {round(per100.get('calories') or 0)} kcal", size=12)]
@@ -135,7 +136,7 @@ def view(app) -> ft.Control:
                                  servings[0]["label"], pick_serving))
         rows += [ft.Row([grams, period], spacing=10), preview]
         dlg = ft.AlertDialog(title=ft.Text(f["name"]), content=ft.Column(rows, tight=True, spacing=12, width=440),
-                             actions=[ui.button("Cancel", lambda e: app.page.pop_dialog(), kind="text"),
+                             actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
                                       ui.button("Log meal", save, icon=ft.Icons.CHECK, kind="food")])
         app.page.show_dialog(dlg)
 

@@ -46,6 +46,8 @@ def login(app) -> ft.Control:
             app.api.sign_in(email.value.strip(), password.value)
             app.load_me()
         except ApiError as ex:
+            if app.api.session:  # signed in, but the profile didn't load: don't save a half login
+                app.api.set_session(None)
             error.value, error.visible = str(ex), True
             _busy(go_btn, False, "Log in")
             app.page.update()
@@ -91,7 +93,7 @@ def signup(app) -> ft.Control:
         app.page.show_dialog(ft.AlertDialog(
             title=ft.Text(notice["title"]), scrollable=True,
             content=ft.Container(ft.Markdown(notice["body"]), width=520),
-            actions=[ui.button("Close", lambda e: app.page.pop_dialog(), kind="text")]))
+            actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
 
     def fail(msg: str):
         error.value, error.visible = msg, True
@@ -164,11 +166,19 @@ def signup(app) -> ft.Control:
 
 def forgot(app) -> ft.Control:
     email = ui.field("Email", keyboard_type=ft.KeyboardType.EMAIL, autofocus=True)
-    code = ui.field("Paste the reset link from the email", multiline=True, max_lines=3)
-    new_pw = ui.field("New password (8+ characters)", password=True, can_reveal_password=True)
-    step2 = ft.Column([code, new_pw], spacing=12, visible=False)
-    info = ft.Text("", color=ui.C.dim)
+    code = ui.field("Reset link from the email", multiline=True, max_lines=3)
+    new_pw = ui.field("New password (8+ chars)", password=True, can_reveal_password=True)
+    confirm = ui.field("Confirm new password", password=True, can_reveal_password=True)
+    step2 = ft.Column([code, new_pw, confirm], spacing=12, visible=False)
+    info = ft.Text("", color=ui.C.dim, visible=False)
     error = ft.Text("", color=ui.C.danger, visible=False)
+    verified = {"link": None}  # a reset link signs in only once: a retry after a refused password reuses it
+
+    def leaving():  # left before the reset finished: don't keep the link's sign-in for the next launch
+        if verified["link"] and app.me is None:
+            app.api.set_session(None)
+
+    app.cleanups.append(leaving)
 
     def fail(msg):
         error.value, error.visible = msg, True
@@ -183,6 +193,9 @@ def forgot(app) -> ft.Control:
         if step2.visible and (not code.value.strip() or len(new_pw.value) < 8):
             fail("Paste the reset link and enter a new password of 8+ characters.")
             return
+        if step2.visible and new_pw.value != confirm.value:
+            fail("The new passwords don't match.")
+            return
         _busy(go_btn, True, "")
         app.page.update()
         app.run(work)
@@ -191,23 +204,32 @@ def forgot(app) -> ft.Control:
         try:
             if not step2.visible:
                 app.api.send_recovery_code(email.value.strip())
-                step2.visible = True
-                info.value = ("We emailed you a reset link. Copy the link (right-click or long-press it, "
-                              "then Copy link) and paste it below. If you already opened it, paste the "
-                              "address of the page it opened instead.")
+                step2.visible = info.visible = True
+                info.value = ("We emailed you a reset link (check spam too). Copy the link (right-click or "
+                              "long-press it, then Copy link) and paste it below. If you already opened it, "
+                              "paste the address of the page it opened instead.")
                 _busy(go_btn, False, "Reset password")
                 app.page.update()
                 return
-            app.api.recover(email.value.strip(), code.value)
+            if code.value.strip() != verified["link"]:  # only a new link signs in again
+                app.api.recover(email.value.strip(), code.value)
+                verified["link"] = code.value.strip()
             app.api.set_password(new_pw.value)
-            app.load_me()
         except ApiError as ex:
             fail(str(ex))
+            return
+        try:
+            app.load_me()
+        except ApiError:  # the password did change, so a retry here would only be refused as "same password"
+            app.api.set_session(None)
+            app.toast("Password updated. Log in with your new password.")
+            app.show_auth("login")
             return
         app.toast("Password updated.")
         app.show_main()
 
     go_btn = ui.button("Send reset email", submit, width=float("inf"))
+    email.on_submit = confirm.on_submit = submit
     return _frame(app, ui.card(ft.Column([
         ui.heading("Reset your password", 20), email, info, step2, error, go_btn,
         ui.button("Back to log in", lambda e: app.show_auth("login"), kind="text"),
