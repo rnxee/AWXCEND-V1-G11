@@ -14,3 +14,5 @@ storage/
 *.spec
 *.partial
 .pack/
+*.zip
+.temp/

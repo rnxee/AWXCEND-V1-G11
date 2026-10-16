@@ -2,8 +2,9 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
-import { isUuid } from '../_shared/validation.ts'
+import { cleanText, isUuid } from '../_shared/validation.ts'
 import { excerptOf } from '../_shared/paging.ts'
+import { restrictionResponse } from '../_shared/sanctions.ts'
 
 // Optional: { message_type: 'chat' | 'dm', message_id } reports one message.
 // The client sends only the id; the message is looked up here, must have been
@@ -31,11 +32,13 @@ Deno.serve(async (req) => {
   if (!(await checkRateLimit(user.id, 'report_user', 10, 3600))) {
     return rateLimitResponse(corsHeaders)
   }
+  const restricted = await restrictionResponse(user.id, 'report', corsHeaders)
+  if (restricted) return restricted
 
   const body = await req.json().catch(() => ({}))
   const reportedUserId = typeof body.reported_user_id === 'string' ? body.reported_user_id.trim() : ''
   const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
-  const details = typeof body.details === 'string' ? body.details.trim().slice(0, MAX_DETAILS_LENGTH) : ''
+  const details = cleanText(body.details).slice(0, MAX_DETAILS_LENGTH)
   const messageType = body.message_type ?? null
   const messageId = body.message_id ?? null
 

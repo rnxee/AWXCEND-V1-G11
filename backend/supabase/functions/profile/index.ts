@@ -2,6 +2,7 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
 import { computeLevel } from '../_shared/leveling.ts'
+import { activeSanctions, sanctionMessage } from '../_shared/sanctions.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -79,6 +80,11 @@ Deno.serve(async (req) => {
   }
 
   const goldBalance = (goldRes.data ?? []).reduce((sum, row) => sum + row.amount, 0)
+  // Privileges a moderator restricted, with the reason, so the dashboard can say so. (A ban never
+  // gets this far: getVerifiedUser refuses it.)
+  const restrictions = (await activeSanctions(user.id))
+    .filter((s) => s.kind === 'restrict')
+    .map((s) => ({ privileges: s.privileges, ends_at: s.ends_at, message: sanctionMessage(s) }))
 
   const specializationXpRows = specializationXpRes.data ?? []
   const activePathXp = specializationXpRows
@@ -104,7 +110,8 @@ Deno.serve(async (req) => {
     // any day a Streak Restore covers. The client mirrors the same rule for
     // instant feedback, but this is the figure a purchase has to move.
     streak: streakRes.data ?? null,
-    streakShields: (streakShieldsRes.data ?? []).map((row) => row.covered_date)
+    streakShields: (streakShieldsRes.data ?? []).map((row) => row.covered_date),
+    restrictions
   }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }

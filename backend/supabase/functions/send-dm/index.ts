@@ -2,7 +2,8 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
 import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
-import { isUuid } from '../_shared/validation.ts'
+import { cleanText, isUuid, MAX_CHAT_WORDS, wordCount } from '../_shared/validation.ts'
+import { restrictionResponse } from '../_shared/sanctions.ts'
 
 const MAX_MESSAGE_LENGTH = 2000
 
@@ -27,16 +28,19 @@ Deno.serve(async (req) => {
   if (!(await checkRateLimit(user.id, 'send_dm', RL_MAX, RL_WINDOW_SECONDS))) {
     return rateLimitResponse(corsHeaders)
   }
+  const restricted = await restrictionResponse(user.id, 'dm', corsHeaders)
+  if (restricted) return restricted
 
   const body = await req.json().catch(() => ({}))
   const recipientId = typeof body.recipient_id === 'string' ? body.recipient_id.trim() : ''
-  const message = typeof body.message === 'string' ? body.message.trim() : ''
+  const message = cleanText(body.message)
 
   const errors: string[] = []
   if (!recipientId) errors.push('recipient_id is required')
   else if (!isUuid(recipientId)) errors.push('recipient_id must be a valid id')
   if (!message) errors.push('message is required')
   if (message.length > MAX_MESSAGE_LENGTH) errors.push(`message must be ${MAX_MESSAGE_LENGTH} characters or fewer`)
+  if (wordCount(message) > MAX_CHAT_WORDS) errors.push(`message must be ${MAX_CHAT_WORDS} words or fewer`)
   if (errors.length > 0) {
     return new Response(JSON.stringify({ success: false, errors }), {
       status: 400,

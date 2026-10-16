@@ -3,9 +3,10 @@ import flet as ft
 
 import ui
 from api import ApiError
-from views.home import workout_line
+from views.home import NAMES, workout_line
 
 SEX = [("male", "Male"), ("female", "Female")]
+ROLE_COLOR = {"moderator": ui.C.camera, "admin": ui.C.danger}  # only your own profile carries a role
 GOALS = [("bulk", "Bulk"), ("cut", "Cut"), ("maintain", "Maintain")]
 
 
@@ -15,7 +16,8 @@ def _header(p: dict, lvl: dict, color: str = ui.C.accent) -> ft.Control:
         ft.Row([ui.avatar(p.get("username", "?"), 64, color),
                 ft.Column([ui.heading(p.get("username", ""), 20),
                            ft.Row([ui.tag(ui.rank_text(p), ui.C.gold),
-                                   ui.tag(ui.FOCUS_LABEL.get(p.get("focus_type"), "Hybrid Athlete"), color)],
+                                   ui.tag(ui.FOCUS_LABEL.get(p.get("focus_type"), "Hybrid Athlete"), color),
+                                   *([ui.tag(p["role"], ROLE_COLOR[p["role"]])] if p.get("role") in ROLE_COLOR else [])],
                                   spacing=6, wrap=True)], spacing=6, expand=True),
                 ft.Column([ui.label("Level", ui.C.dim, 10), ui.num(lvl.get("level", 1), 34, color)],
                           horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)],
@@ -82,11 +84,25 @@ def view(app) -> ft.Control:
         return ui.card(ft.Row([ft.Icon(icon, color=color), ft.Text(text, color=color, expand=True),
                                ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim)]), padding=14, on_click=on_click)
 
-    links = [link("Leaderboard", ft.Icons.LEADERBOARD, lambda e: app.open(social.leaderboard)),
+    from views import account, game
+    links = [link("Shop", ft.Icons.STOREFRONT, lambda e: app.open(game.shop), ui.C.gold),
+             link("Collection", ft.Icons.DIAMOND_OUTLINED, lambda e: app.open(game.collection)),
+             link("Leaderboard", ft.Icons.LEADERBOARD, lambda e: app.open(social.leaderboard)),
              link("AI coach", ft.Icons.AUTO_AWESOME, lambda e: app.open(coach.view))]
     if app.is_staff:
         links.append(link("Admin panel", ft.Icons.ADMIN_PANEL_SETTINGS, lambda e: app.open(admin.view), ui.C.gold))
-    links.append(link("Sign out", ft.Icons.LOGOUT, lambda e: app.sign_out(), ui.C.danger))
+    links += [link("Report a problem", ft.Icons.BUG_REPORT_OUTLINED, lambda e: account.report_problem(app)),
+              link("Account & privacy", ft.Icons.MANAGE_ACCOUNTS_OUTLINED, lambda e: app.open(account.view)),
+              link("Sign out", ft.Icons.LOGOUT, lambda e: app.sign_out(), ui.C.danger)]
+
+    prs = me.get("strengthPrs") or []
+    records = [ui.section("Personal records"), ui.card(ft.Column([
+        ft.Row([ft.Text(NAMES.get(r["exercise"], r["exercise"]), color=ui.C.text, expand=True),
+                *([ui.tag("form ✓", ui.C.camera)] if r.get("form_verified") else []),
+                ui.body(f"{float(r['weight_kg']):g} kg × {r['reps']}", size=12),
+                ft.Text(f"{float(r['e1rm_kg']):.0f} kg e1RM", color=ui.C.primary_bright, font_family="LatoBold")],
+               spacing=8)
+        for r in prs[:8]], spacing=10), padding=14)] if prs else []
 
     return ui.screen(
         "Profile", _header(p, me.get("levelInfo") or {}),
@@ -96,6 +112,7 @@ def view(app) -> ft.Control:
         ui.section("Attributes"), _attributes(p),
         *([ui.section("Body"), ui.card(ft.Row([ft.Column([ui.label(k, size=11), ft.Text(str(v), color=ui.C.text)], spacing=2)
                                             for k, v in body_stats], alignment=ft.MainAxisAlignment.SPACE_AROUND))] if body_stats else []),
+        *records,
         *links,
         actions=[ui.button("Edit", lambda e: edit_dialog(app), icon=ft.Icons.EDIT_OUTLINED, kind="ghost")],
     )

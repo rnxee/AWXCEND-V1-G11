@@ -148,5 +148,24 @@ def view(app) -> ft.Control:
         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim),
     ], spacing=14), on_click=lambda e: open_camera(app), accent=ui.fade(ui.C.camera, 0x66))
 
-    return ui.screen("Train", camera, ui.section("Log a workout"), form,
+    from views import game, plan, routines  # local: these import this module
+
+    def entry(title, text, icon, color, screen):
+        return ui.card(ft.Row([
+            ft.Icon(icon, color=color, size=30),
+            ft.Column([ui.heading(title, 15), ui.body(text, size=13)], spacing=2, expand=True),
+            ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim),
+        ], spacing=14), on_click=lambda e: app.open(screen), accent=ui.fade(color, 0x66))
+
+    more = [
+        entry("Missions", "Boss fights you clear with your sets. Rewards XP, gold and collectibles.",
+              ft.Icons.FLAG, ui.C.gold, lambda a: ui.screen("Missions", game.missions(a))),
+        entry("Training plan", "A month of sessions made for your goal, days and equipment.",
+              ft.Icons.CALENDAR_MONTH, ui.C.food, plan.training),
+        entry("My routines", "Save the workouts you repeat and log them in a few taps.",
+              ft.Icons.LIST_ALT, ui.C.accent, routines.view),
+        entry("Dungeons", "Party boss events and who closed the most gates.", ft.Icons.CASTLE, ui.C.danger, game.dungeons),
+    ]
+
+    return ui.screen("Train", camera, ui.section("Log a workout"), form, ui.section("More training"), *more,
                      subtitle="Every set you log earns XP toward your rank.")

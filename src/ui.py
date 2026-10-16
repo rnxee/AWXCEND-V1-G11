@@ -212,7 +212,16 @@ def _field_style() -> dict:
                 cursor_color=C.accent)
 
 
+# Typed or pasted characters that hide text or break layouts: control codes (newline and tab stay), zero-width
+# spaces, bidi overrides and the byte-order mark. Same set the server strips (cleanText in _shared/validation.ts).
+BAD_CHARS = "[" + "".join(f"\\u{a:04x}-\\u{b:04x}" for a, b in (
+    (0x0, 0x8), (0xb, 0x1f), (0x7f, 0x9f), (0x200b, 0x200c), (0x200e, 0x200f), (0x202a, 0x202e),
+    (0x2060, 0x2069), (0xfeff, 0xfeff))) + "]"
+
+
 def field(lbl: str, **kw) -> ft.TextField:
+    if not kw.get("password"):  # a password is compared as typed: never alter it
+        kw.setdefault("input_filter", ft.InputFilter(BAD_CHARS, allow=False))
     return ft.TextField(label=lbl, **{**_field_style(), **kw})
 
 
@@ -270,6 +279,28 @@ def chips(options: list[tuple[str, str]], selected: str, on_pick) -> ft.Row:
         on_pick(k)
 
     render(selected)
+    return row
+
+
+def multi_chips(options: list[tuple[str, str]], selected: set[str]) -> ft.Row:
+    """Like chips(), but each tab toggles on and off; `selected` is updated in place."""
+    row = ft.Row(wrap=True, spacing=8, run_spacing=8)
+
+    def render():
+        row.controls = [ft.Container(
+            ft.Text(t.upper(), size=12, font_family="LatoBold", color=C.text if k in selected else C.dim,
+                    style=ft.TextStyle(letter_spacing=1)),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=9), border_radius=3, ink=True,
+            bgcolor=fade(C.primary, 0x33) if k in selected else fade(C.void_deep, 0xaa),
+            border=ft.Border.all(1, C.primary_bright if k in selected else C.border),
+            on_click=lambda e, k=k: toggle(k)) for k, t in options]
+
+    def toggle(k):
+        selected.symmetric_difference_update({k})
+        render()
+        row.update()
+
+    render()
     return row
 
 

@@ -6,7 +6,7 @@ import flet as ft
 import config
 import ui
 from api import Api, ApiError
-from views import auth, food, home, profile, social, train
+from views import auth, food, home, legal, profile, social, train
 
 TABS = [
     ("home", "Home", ft.Icons.HOME_OUTLINED, ft.Icons.HOME),
@@ -102,6 +102,7 @@ class App:
         self.stack.clear()
         self.layout()
         self.go(self.tab)
+        self.run(legal.check_current, self)  # updated Terms or Privacy Policy: ask before carrying on
 
     def layout(self) -> None:
         wide = self.wide = (self.page.width or 0) >= WIDE

@@ -8,14 +8,15 @@ How we built it, the problems we hit and what we learned: [docs/REBUILD_JOURNAL.
 
 | Area | What it does |
 |---|---|
-| Account | Sign up (with the privacy notice), log in, reset a password by pasting the emailed link |
-| Dashboard | Level and XP progress, rank, streak, quick actions, recent workouts |
-| Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones |
+| Account | Sign up (18 and over, accepting the Terms of Use and Privacy Policy), log in, reset a password by pasting the emailed link. Account & privacy: download your data, hide your account, delete it, join the relative strength board, report a problem. Legal: Terms of Use, Privacy Policy and Cookie Policy, and a prompt to accept updated versions |
+| Dashboard | Level and XP progress, rank, streak, quick actions, recent workouts, and any moderator restrictions on you |
+| Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones, and delete a mistake within 24 hours. Routines, a monthly training plan, Missions (boss fights cleared with your sets) and the Dungeon board |
+| Profile | Personal records, Shop (spend gold on potions and streak restores), Collection |
 | Camera (desktop) | Rep counting for push-ups, squats, lunges and bicep curls, using MediaPipe Pose. The video can come from a webcam or your phone (Phone Link / DroidCam / Iriun as a webcam, or the IP Webcam app over Wi-Fi). **Rotate video** turns a sideways phone feed upright |
-| Food | Search foods, log portions by grams or serving, and see today's calories and macros |
-| Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages, leaderboard |
+| Food | Search foods, log portions by grams or serving, see today's calories and macros, delete a meal, and a food budget helper (cheapest protein per peso) |
+| Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages, XP and strength leaderboards |
 | AI coach | Advice from your recent training and meals, after you accept the AI notice |
-| Admin | Moderators and admins review reports, the post queue, and user roles |
+| Admin | Moderators: reports, post queue, bug reports and **sanctions** (ban an account or restrict posting, chat, DMs, friend requests or reporting, for a set time or permanently). Admins also manage roles and read the audit log |
 
 ## Run it (Windows desktop)
 
@@ -34,7 +35,14 @@ py -m pytest
 - `tests/test_counters.py` feeds synthetic poses through the rep counters:
   - real reps count;
   - knee raises, half reps, bounces and tracking dropouts don't.
-- `tests/test_api.py` covers the backend client (sign-in, token refresh, error messages) against a fake server.
+- `tests/test_replay.py` replays 7 real recorded camera sets; `test_stream.py`, `test_source.py` and `test_orient.py` cover the camera feed.
+- `tests/test_api.py` covers the backend client (sign-in, token refresh, password-reset links, bans, error messages) against a fake server.
+- `tests/test_auth_screens.py`, `test_features.py` and `test_game.py` drive the real screens against a fake server (`tests/fakes.py`): login and password reset, account deletion, routines, sanctions, deleting workouts and meals, missions and the shop.
+- `tests/test_ui.py` covers the shared UI helpers (time zones, number fields, dialogs).
+- The server's pure rules (sanctions, text cleaning) have their own tests: `node --test backend/supabase/functions/_shared/*.test.ts`.
+- GitHub Actions (`.github/workflows/tests.yml`) runs both on every push and pull request. The camera tests skip there because it installs no OpenCV.
+
+Text inputs block invisible characters (zero-width spaces, text-direction overrides, control codes), and the server strips them again along with "zalgo" stacks of accent marks. Chat and DM messages are capped at 100 words.
 
 ## Build
 
@@ -91,7 +99,12 @@ The group's Supabase project is `gwtdcxvfvnyfsvnbgneo`.
 - `migrations/20260926100000_baseline_schema.sql` holds the full schema: 65 tables, functions, RLS policies and storage buckets.
 - `migrations/20260926100100_reference_data.sql` holds the game and food reference data, and no user data.
 - `migrations/20260926110000_match_original_privileges.sql` is a security fix. It closes database functions and private tables to the public API; the app reaches them only through Edge Functions. **Every new migration that creates a function must end with** `REVOKE EXECUTE ON FUNCTION public.<name>(<args>) FROM PUBLIC, anon, authenticated;`. Supabase grants everyone access to new functions by default.
-- `functions/` holds the 57 Edge Functions.
+- `migrations/20261016120000_user_sanctions.sql` adds moderation sanctions (bans and restrictions). Service role only.
+- `migrations/20261016130000_delete_workout_log.sql` lets players delete a hand-logged workout within 24 hours, taking back its XP, rank, attribute points and strength record in one transaction.
+- `migrations/20261016140000_close_direct_writes.sql` is a security fix. Routines and camera templates can no longer be written straight through the database API, only through their Edge Functions.
+- `migrations/20261016150000_legal_documents.sql` publishes the Terms of Use, Privacy Policy and Cookie Policy. They are versioned and can't be edited once published. To change one, insert a new version: the app then asks every player to accept it.
+- `functions/` holds the 60 Edge Functions. Bans are checked in `_shared/auth.ts`, so every function refuses a banned player (except export, delete, privacy and abandon-signup: a sanction never blocks a player's rights over their own data). The pure rules are in `_shared/sanctionRules.ts`; test them with `node --test backend/supabase/functions/_shared/sanctionRules.test.ts`.
+- After changing anything in `functions/_shared/`, redeploy all functions: each one bundles its own copy.
 - `config.toml` holds the auth settings: sign-in without email confirmation and a minimum password length of 8. The free plan can't customise emails without custom SMTP, so the default reset email (a link) is used and the app accepts the pasted link. `templates/recovery.html` (a code email) is ready for when custom SMTP is set up.
 
 Run these from the `backend/` folder:

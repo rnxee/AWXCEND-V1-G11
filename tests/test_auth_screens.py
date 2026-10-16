@@ -5,46 +5,11 @@ import flet as ft
 import httpx
 
 import ui
-from api import Api
+from fakes import FakeApp, walk
 from views.auth import forgot, login
 
 LINK = "https://example.supabase.co/auth/v1/verify?token={}&type=recovery&redirect_to=http://localhost:3000"
 SESSION = {"access_token": "tok", "refresh_token": "ref", "user": {"id": "u1"}}
-
-
-class FakeApp:
-    """Just what views.auth.forgot uses; work runs inline instead of on a thread."""
-
-    def __init__(self, handler):
-        self.saved = []
-        self.api = Api("https://example.supabase.co", "pub", transport=httpx.MockTransport(handler),
-                       on_session=self.saved.append)
-        self.page = type("Page", (), {"update": lambda self, *c: None})()
-        self.me, self.cleanups, self.toasts, self.screens = None, [], [], []
-
-    def run(self, fn, *args):
-        fn(*args)
-
-    def toast(self, message, error=False):
-        self.toasts.append(message)
-
-    def load_me(self):
-        self.me = self.api.call("profile")
-
-    def show_main(self):
-        self.screens.append("main")
-
-    def show_auth(self, screen="login"):
-        while self.cleanups:  # like App.leave()
-            self.cleanups.pop()()
-        self.screens.append(screen)
-
-
-def walk(c):
-    yield c
-    for child in [getattr(c, "content", None), *(getattr(c, "controls", None) or [])]:
-        if isinstance(child, ft.Control):
-            yield from walk(child)
 
 
 def screen(handler):

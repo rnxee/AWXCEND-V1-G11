@@ -23,7 +23,7 @@ WORK = ROOT / ".pack"
 WORK.mkdir(exist_ok=True)
 cmd = ["flet", "pack", "../src/main.py", "--name", "AWXCEND", "--icon", "../src/assets/icon.ico", "--onedir",
        "--distpath", "../dist/windows", "--add-data", "../src/assets:assets", "--product-name", "AWXCEND",
-       "--file-description", "AWXCEND fitness", "--product-version", "0.1.0", "--company-name", "AWXCEND group",
+       "--file-description", "AWXCEND fitness", "--product-version", "1.0.0", "--company-name", "AWXCEND group",
        # MediaPipe loads its engine (libmediapipe.dll) at runtime, which PyInstaller can't see by itself.
        # collect-all would drag in PyTorch via MediaPipe's training tools, so only binaries + data.
        "--pyinstaller-build-args=--collect-binaries=mediapipe",

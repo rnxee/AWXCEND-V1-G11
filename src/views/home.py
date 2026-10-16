@@ -31,6 +31,41 @@ def workout_line(w: dict) -> str:
     return " · ".join(parts)
 
 
+def deletable(w: dict, now: datetime | None = None) -> bool:
+    """What delete-workout accepts: a hand-logged workout from the last 24 hours (the server also
+    refuses mission/dungeon sets and anything from before a path change, and says why)."""
+    if w.get("workout_source") != "manual" or not w.get("id"):
+        return False
+    try:
+        t = datetime.fromisoformat((w.get("logged_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)  # workout_logs.logged_at is UTC without saying so
+    return (now or datetime.now(timezone.utc)) - t < timedelta(hours=24)
+
+
+def confirm_delete_workout(app, w: dict, after) -> None:
+    def go(e):
+        app.close_dialog()
+
+        def work():
+            try:
+                res = app.api.call("delete-workout", "POST", {"workout_log_id": w["id"]})
+                app.load_me()
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                return
+            app.toast(f"Workout deleted · −{res.get('xp_removed', 0)} XP")
+            after()
+        app.run(work)
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Delete this workout?"),
+        content=ft.Text(f"{workout_line(w)}\nThe {w.get('xp_earned') or 0} XP it earned is taken back."),
+        actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
+                 ui.button("Delete", go, kind="danger")]))
+
+
 def view(app) -> ft.Control:
     me, p = app.me, app.me["profile"]
     lvl = me.get("levelInfo") or {}
@@ -90,7 +125,10 @@ def view(app) -> ft.Control:
                 ft.Text(workout_line(w), expand=True, color=ui.C.text),
                 ft.Column([ft.Text(f"+{w.get('xp_earned') or 0} XP", color=ui.C.primary_bright, font_family="LatoBold"),
                            ui.body(ui.when(w.get("logged_at", "")), size=11)],
-                          horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0)])
+                          horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0),
+                *([ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete workout",
+                                 on_click=lambda e, w=w: confirm_delete_workout(app, w, lambda: app.go("home")))]
+                  if deletable(w) else [])])
         for w in recent
     ], spacing=12) if recent else ui.empty("No workouts yet. Log your first one!", ft.Icons.FITNESS_CENTER)
 
@@ -104,10 +142,20 @@ def view(app) -> ft.Control:
             app.go("home")
         app.run(work)
 
-    friend_note = []
+    def show_again(e):
+        from views.account import set_active
+        set_active(app, True, lambda: app.go("home"))
+
+    friend_note = [ui.card(ft.Row([ft.Icon(ft.Icons.VISIBILITY_OFF, color=ui.C.gold),
+                                   ft.Text("Your account is hidden.", expand=True),
+                                   ui.button("Show it again", show_again, kind="text")]),
+                           accent=ui.fade(ui.C.gold, 0x88))] if p.get("deactivated_at") else []
+    friend_note += [ui.card(ft.Row([ft.Icon(ft.Icons.GAVEL, color=ui.C.danger),
+                                    ft.Text(r.get("message", ""), color=ui.C.text, expand=True)]),
+                            accent=ui.fade(ui.C.danger, 0x88)) for r in me.get("restrictions") or []]
     if me.get("pendingFriendRequests"):
         n = me["pendingFriendRequests"]
-        friend_note = [ui.card(ft.Row([ft.Icon(ft.Icons.PERSON_ADD, color=ui.C.accent),
+        friend_note += [ui.card(ft.Row([ft.Icon(ft.Icons.PERSON_ADD, color=ui.C.accent),
                                        ft.Text(f"{n} friend request{'s' if n > 1 else ''} waiting", expand=True),
                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim)]),
                                on_click=lambda e: social.open_tab(app, "friends"), accent=ui.fade(ui.C.accent, 0x66))]

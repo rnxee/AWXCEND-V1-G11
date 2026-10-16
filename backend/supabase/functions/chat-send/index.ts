@@ -2,6 +2,8 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
+import { restrictionResponse } from '../_shared/sanctions.ts'
+import { cleanText, MAX_CHAT_WORDS, wordCount } from '../_shared/validation.ts'
 
 const MAX_MESSAGE_LENGTH = 500
 
@@ -21,13 +23,16 @@ Deno.serve(async (req) => {
   if (!(await checkRateLimit(user.id, 'chat_send', 30, 60))) {
     return rateLimitResponse(corsHeaders)
   }
+  const restricted = await restrictionResponse(user.id, 'chat', corsHeaders)
+  if (restricted) return restricted
 
   const body = await req.json().catch(() => ({}))
-  const message = typeof body.message === 'string' ? body.message.trim() : ''
+  const message = cleanText(body.message)
 
   const errors: string[] = []
   if (!message) errors.push('message is required')
   if (message.length > MAX_MESSAGE_LENGTH) errors.push(`message must be ${MAX_MESSAGE_LENGTH} characters or fewer`)
+  if (wordCount(message) > MAX_CHAT_WORDS) errors.push(`message must be ${MAX_CHAT_WORDS} words or fewer`)
 
   if (errors.length > 0) {
     return new Response(JSON.stringify({ success: false, errors }), {

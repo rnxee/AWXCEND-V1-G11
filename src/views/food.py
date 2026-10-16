@@ -53,10 +53,30 @@ def view(app) -> ft.Control:
                            ui.body(f"{l.get('meal_period', '')} · {float(l.get('weight_g') or 0):g} g", size=12)],
                           spacing=2, expand=True),
                 ft.Text(f"{round(float(l.get('calories') or 0))} kcal", color=ui.C.gold),
+                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete meal",
+                              on_click=lambda e, l=l: confirm_delete(l)),
             ]), padding=12)
             for l in logs[:15]
         ] or [ui.empty("No meals logged yet.", ft.Icons.RESTAURANT)]
         app.page.update()
+
+    def confirm_delete(meal):
+        def go(e):
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("delete-meal", "POST", {"meal_log_id": meal["id"]})
+                    app.toast("Meal deleted.")
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                load_logs()
+            app.run(work)
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Delete this meal?"),
+            content=ft.Text(f"{meal.get('food_name', '')} · {round(float(meal.get('calories') or 0))} kcal comes off today's totals."),
+            actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
+                     ui.button("Delete", go, kind="danger")]))
 
     def do_search(e=None):
         q = search.value.strip()
@@ -152,8 +172,10 @@ def view(app) -> ft.Control:
 
     search.on_submit = do_search
     app.run(load_logs)
+    from views import plan  # local: plan is a sibling screen
     return ui.screen(
         "Food", ui.section("Today"), totals,
+        ui.button("Food budget", lambda e: app.open(plan.budget), icon=ft.Icons.SAVINGS_OUTLINED, kind="ghost"),
         ft.Row([search, ft.IconButton(ft.Icons.SEARCH, on_click=do_search, tooltip="Search")]),
         results, ui.section("Recent meals"), logs_box,
         subtitle="Nutrition values are estimates. Log what you ate to track your macros.",

@@ -2,6 +2,7 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
+import { MIN_AGE } from '../_shared/validation.ts'
 import {
   isSpecialization,
   specializationList,
@@ -54,6 +55,7 @@ Deno.serve(async (req) => {
   if (heightCm !== null && (!Number.isFinite(heightCm) || heightCm <= 0 || heightCm >= 300)) errors.push('Height must be between 0 and 300 cm')
   if (sex !== null && !ALLOWED_SEX.includes(sex)) errors.push(`Sex must be one of: ${ALLOWED_SEX.join(', ')}`)
   if (age !== null && (!Number.isInteger(age) || age <= 0 || age >= 120)) errors.push('Age must be a whole number between 0 and 120')
+  else if (age !== null && age < MIN_AGE) errors.push(`AWXCEND is for people ${MIN_AGE} and over.`)
   if (goal !== null && !ALLOWED_GOALS.includes(goal)) errors.push(`Goal must be one of: ${ALLOWED_GOALS.join(', ')}`)
   if (focusType !== null && !isSpecialization(focusType)) errors.push(`Focus path must be one of: ${specializationList()}`)
 

@@ -3,6 +3,7 @@ import { getVerifiedUser } from '../_shared/auth.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
 import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 import { isUuid } from '../_shared/validation.ts'
+import { restrictionResponse } from '../_shared/sanctions.ts'
 
 // No legitimate reason to fire many friend requests quickly — 30/hour throttles
 // spray-request spam and userbase-enumeration-via-requests without ever
@@ -26,6 +27,8 @@ Deno.serve(async (req) => {
   if (!(await checkRateLimit(user.id, 'send_friend_request', RL_MAX, RL_WINDOW_SECONDS))) {
     return rateLimitResponse(corsHeaders)
   }
+  const restricted = await restrictionResponse(user.id, 'friend_request', corsHeaders)
+  if (restricted) return restricted
 
   const body = await req.json().catch(() => ({}))
   const addresseeId = typeof body.addressee_id === 'string' ? body.addressee_id.trim() : ''

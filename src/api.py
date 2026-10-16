@@ -19,7 +19,9 @@ AUTH_ERRORS = {
     "over_email_send_rate_limit": "Too many emails were sent recently. Wait a few minutes (up to an hour) and "
                                   "try again.",
     "otp_expired": "That reset link has expired or was already used. Send yourself a new one.",
+    "user_banned": "This account is suspended by a moderator.",
 }
+SUSPENDED = "Account suspended"  # how every function's ban message starts (_shared/sanctionRules.ts)
 
 
 class ApiError(Exception):
@@ -53,6 +55,16 @@ def _error_from(res: httpx.Response) -> ApiError:
         if sep and head.isupper() and "_" in head and not code:
             code, msg = head, rest
     return ApiError(msg, res.status_code, code)
+
+
+def _answered(res: httpx.Response) -> bool:
+    """A 401 that is the function's answer (delete-account's "Incorrect password."), not an expired token:
+    refreshing and resending it would only spend another attempt."""
+    try:
+        body = res.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and bool(body.get("errors"))
 
 
 class Api:
@@ -114,6 +126,8 @@ class Api:
             except ApiError as e:
                 if e.status:  # the server said no: this login is over
                     self.set_session(None)
+                    if e.code == "user_banned":  # a ban outlived the access token: say so, not "expired"
+                        raise ApiError(str(e), 401, "SUSPENDED") from e
                     raise ApiError("Your session expired. Please log in again.", 401) from e
                 raise
             self.set_session(data)
@@ -164,7 +178,12 @@ class Api:
             token = self.key if anon or not self.session else self.session["access_token"]
             res = self._send(method, f"{self.url}/functions/v1/{fn}", json=body, params=params,
                              headers={"Authorization": f"Bearer {token}"}, **extra)
-            if res.status_code == 401 and attempt == 1 and self.session and not anon:
+            if res.status_code == 401 and self.session and not anon:
+                why = _error_from(res)
+                if str(why).startswith(SUSPENDED):  # banned: say so, instead of "your session expired"
+                    self.set_session(None)
+                    raise ApiError(str(why), 401, "SUSPENDED")
+            if res.status_code == 401 and attempt == 1 and self.session and not anon and not _answered(res):
                 self.refresh()
                 continue
             if res.is_error:

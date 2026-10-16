@@ -15,6 +15,8 @@ export const PERMISSIONS = {
   moderate_posts: ['moderator', 'admin'],
   // Review/dismiss user-submitted reports about other users
   moderate_users: ['moderator', 'admin'],
+  // Ban an account or restrict its privileges (who may sanction whom: _shared/sanctions.ts)
+  sanction_users: ['moderator', 'admin'],
   // Review/resolve user-submitted bug/feature reports about the app itself
   manage_bug_reports: ['moderator', 'admin'],
   // Change another user's role

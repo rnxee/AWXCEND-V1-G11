@@ -11,6 +11,12 @@ REPORT_REASONS = [("harassment", "Harassment or bullying"), ("spam", "Spam"), ("
                   ("inappropriate_content", "Inappropriate content"), ("cheating", "Cheating / faking stats"),
                   ("other", "Other")]
 MAX_IMAGE = 1_900_000  # create-post takes JPEGs up to ~2 MB
+MAX_CHAT_WORDS = 100  # chat-send and send-dm refuse more (MAX_CHAT_WORDS in _shared/validation.ts)
+
+
+def too_long(text: str) -> str | None:
+    n = len(text.split())
+    return f"Keep messages to {MAX_CHAT_WORDS} words (this one has {n})." if n > MAX_CHAT_WORDS else None
 
 
 def prepare_jpeg(data: bytes, name: str) -> bytes | None:
@@ -131,6 +137,9 @@ def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str) -> ft.Control
     def submit():
         text = box.value.strip()
         if not text:
+            return
+        if problem := too_long(text):  # the text stays in the box to trim
+            app.toast(problem, error=True)
             return
         box.value = ""
         app.page.update()
@@ -446,37 +455,86 @@ def dm(app, friend: dict) -> ft.Control:
 
 
 # ---- leaderboard ----------------------------------------------------------------------
+RANKABLE_LIFTS = ["squat", "deadlift", "benchpress", "romaniandeadlift", "inclinebenchpress", "declinebenchpress",
+                  "shoulderpress", "hipthrust", "tbarrow", "latpulldown", "barbellbicepscurl", "hammercurl", "snatch",
+                  "cleanandjerk", "powerclean", "farmerscarry", "atlasstone", "yokewalk"]  # = strengthStandards.ts
+MEDAL = {1: ui.C.gold, 2: "#cbd5e1", 3: "#d97706"}
+
+
+def strength_value(r: dict, relative: bool) -> str:
+    if relative:
+        return f"{r['relative_e1rm']:.2f}× BW" if r.get("relative_e1rm") is not None else "–"
+    return f"{r['e1rm_kg']:.0f} kg"
+
+
+def strength_detail(r: dict) -> str:
+    parts = [f"{r['weight_kg']:g} kg × {r['reps']}", r.get("strength_rank"), "form ✓" if r.get("form_verified") else None]
+    return " · ".join(p for p in parts if p)
+
+
 def leaderboard(app) -> ft.Control:
+    from views.home import NAMES
     rows = ft.Column([ui.loading()], spacing=8)
-    mine = app.me["profile"].get("focus_type") or "hybrid"
+    state = {"board": "xp", "path": app.me["profile"].get("focus_type") or "hybrid", "lift": "squat", "mode": "absolute"}
+    me_name = app.me["profile"].get("username")
 
-    def load(path):
+    def place(pos, name, detail, value, mine):
+        return ui.card(ft.Row([
+            ft.Container(ui.num(pos if pos else "–", 18, MEDAL.get(pos, ui.C.dim)), width=36),
+            ui.avatar(name or "?", 34, MEDAL.get(pos, ui.C.primary)),
+            ft.Column([ft.Text(name or "You", color=ui.C.text, font_family="LatoBold"), ui.body(detail, size=12)],
+                      spacing=0, expand=True),
+            ft.Text(value, color=ui.C.primary_bright, font_family="LatoBold"),
+        ]), padding=10, accent=ui.C.accent if mine else None)
+
+    def load():
+        state["req"] = req = state.get("req", 0) + 1  # a slower, older answer must not replace a newer pick
         try:
-            board = app.api.call("leaderboard", params={"focus_type": path})
+            if state["board"] == "xp":
+                board = app.api.call("leaderboard", params={"focus_type": state["path"]}) or []
+                drawn = [place(i, r.get("username"), ui.rank_text(r), f"{int(r.get('xp') or 0):,} XP",
+                               r.get("username") == me_name) for i, r in enumerate(board, 1)] \
+                    or [ui.empty("No one on this path yet.", ft.Icons.LEADERBOARD)]
+            else:
+                rel = state["mode"] == "relative"
+                res = app.api.call("strength-leaderboard", params={"exercise": state["lift"], "mode": state["mode"]})
+                entries, own = res.get("entries", []), res.get("own")
+                drawn = [place(r["position"], r["username"], strength_detail(r), strength_value(r, rel),
+                               r["username"] == me_name) for r in entries] \
+                    or [ui.empty("No records for this lift yet. Log it with a weight to get on the board.",
+                                 ft.Icons.FITNESS_CENTER)]
+                if own and own.get("position") is None:  # outside the top 50
+                    drawn += [ui.section("Your best"), place(None, me_name, strength_detail(own),
+                                                             strength_value(own, rel), True)]
+                if rel and not res.get("viewer_relative_opt_in"):
+                    drawn.insert(0, ui.body("Only lifters who joined appear here. Join in Profile → "
+                                            "Account & privacy.", size=12, color=ui.C.gold))
         except ApiError as ex:
-            rows.controls = [ui.error_box(str(ex))]
+            drawn = [ui.error_box(str(ex), lambda: app.run(load))]
+        if req == state["req"]:
+            rows.controls = drawn
             app.page.update()
-            return
-        medal = {0: ui.C.gold, 1: "#cbd5e1", 2: "#d97706"}
-        me_name = app.me["profile"].get("username")
-        rows.controls = [ui.card(ft.Row([
-            ft.Container(ui.num(i + 1, 18, medal.get(i, ui.C.dim)), width=36),
-            ui.avatar(r.get("username", "?"), 34, medal.get(i, ui.C.primary)),
-            ft.Column([ft.Text(r.get("username", ""), color=ui.C.text, font_family="LatoBold"),
-                       ui.body(ui.rank_text(r), size=12)], spacing=0, expand=True),
-            ft.Text(f"{int(r.get('xp') or 0):,} XP", color=ui.C.primary_bright, font_family="LatoBold"),
-        ]), padding=10, accent=ui.C.accent if r.get("username") == me_name else None)
-            for i, r in enumerate(board or [])] or [ui.empty("No one on this path yet.", ft.Icons.LEADERBOARD)]
-        app.page.update()
 
-    def pick(e):
+    def reload(**change):
+        state.update(change)
+        xp_filters.visible, strength_filters.visible = state["board"] == "xp", state["board"] == "strength"
         rows.controls = [ui.loading()]
         app.page.update()
-        app.run(load, e.control.value)
+        app.run(load)
 
-    app.run(load, mine)
-    return ui.screen("Leaderboard", ui.dropdown("Path", ui.FOCUS_TYPES, mine, on_select=pick), rows,
-                     subtitle="Top 50 by XP on each training path.")
+    xp_filters = ft.Column([ui.dropdown("Path", ui.FOCUS_TYPES, state["path"],
+                                        on_select=lambda e: reload(path=e.control.value))])
+    strength_filters = ft.Column([
+        ui.dropdown("Lift", [(k, NAMES.get(k, k)) for k in RANKABLE_LIFTS], "squat", enable_filter=True,
+                    on_select=lambda e: reload(lift=e.control.value)),
+        ui.chips([("absolute", "Heaviest (kg)"), ("relative", "× bodyweight")], "absolute", lambda k: reload(mode=k)),
+    ], spacing=10, visible=False)
+
+    app.run(load)
+    return ui.screen("Leaderboard",
+                     ui.chips([("xp", "XP"), ("strength", "Strength")], "xp", lambda k: reload(board=k)),
+                     xp_filters, strength_filters, rows,
+                     subtitle="Top 50 by XP on each path, or by estimated one-rep max on each lift.")
 
 
 # ---- tab ----------------------------------------------------------------------------

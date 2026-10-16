@@ -18,7 +18,7 @@ import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 
 const RL_MAX = 30
 const RL_WINDOW_SECONDS = 300
-const ACK_TYPES = ['privacy_notice', 'camera', 'gps', 'ai_features', 'verification']
+const ACK_TYPES = ['privacy_notice', 'terms_of_use', 'camera', 'gps', 'ai_features', 'verification']
 const VERSION_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[a-z0-9-]+$/
 
 function json(body: unknown, status = 200) {
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   }
 
   const admin = getAdminClient()
-  const { user } = await getVerifiedUser(req)
+  const { user } = await getVerifiedUser(req, { allowBanned: true })
 
   if (req.method === 'GET') {
     if (!user) {

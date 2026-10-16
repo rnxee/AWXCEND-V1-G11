@@ -4,6 +4,8 @@ import { checkRateLimit, rateLimitResponse } from '../_shared/rateLimit.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
 import { dailyGoldKey } from '../_shared/gameDay.ts'
 import { isJpeg } from '../_shared/imageBytes.ts'
+import { restrictionResponse } from '../_shared/sanctions.ts'
+import { cleanText } from '../_shared/validation.ts'
 
 // One award per author per game day (Asia/Manila), shared with moderate-post
 // through the same idempotency key.
@@ -39,13 +41,15 @@ Deno.serve(async (req) => {
   if (!(await checkRateLimit(user.id, 'create_post', 10, 3600))) {
     return rateLimitResponse(corsHeaders)
   }
+  const restricted = await restrictionResponse(user.id, 'post', corsHeaders)
+  if (restricted) return restricted
 
   const body = await req.json().catch(() => ({}))
   const tab = typeof body.tab === 'string' ? body.tab.trim() : ''
-  const content = typeof body.content === 'string' ? body.content.trim() : ''
-  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const content = cleanText(body.content)
+  const title = cleanText(body.title)
   const imageBase64 = typeof body.image_base64 === 'string' ? body.image_base64.trim() : ''
-  const ingredients = typeof body.ingredients === 'string' ? body.ingredients.trim() : ''
+  const ingredients = cleanText(body.ingredients)
 
   const errors: string[] = []
   if (!ALLOWED_TABS.includes(tab)) errors.push(`tab must be one of: ${ALLOWED_TABS.join(', ')}`)

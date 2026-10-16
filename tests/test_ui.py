@@ -45,3 +45,22 @@ def test_closing_a_form_also_closes_the_toast_shown_over_it():
     app.page = Page()
     app.close_dialog()
     assert open_dialogs == []
+
+
+def test_text_fields_block_invisible_characters_but_passwords_are_untouched():
+    import re
+
+    import ui
+    f = ui.field("Message")
+    assert f.input_filter.allow is False and f.input_filter.regex_string == ui.BAD_CHARS
+    assert ui.field("Password", password=True).input_filter is None
+    assert ui.number_field("Reps").input_filter.allow is True  # its own digits-only filter wins
+    hidden = "".join(map(chr, (0x200B, 0x202E, 0x0, 0xFEFF)))
+    assert re.sub(ui.BAD_CHARS, "", f"hi{hidden}\tthere\n") == "hi\tthere\n"
+    assert re.sub(ui.BAD_CHARS, "", chr(0x1F468) + chr(0x200D) + chr(0x1F469)) == chr(0x1F468) + chr(0x200D) + chr(0x1F469)
+
+
+def test_chat_word_limit():
+    from views.social import MAX_CHAT_WORDS, too_long
+    assert too_long(" ".join(["rep"] * MAX_CHAT_WORDS)) is None
+    assert too_long(" ".join(["rep"] * (MAX_CHAT_WORDS + 1))) == "Keep messages to 100 words (this one has 101)."

@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     return json({ success: false, error: 'Method not allowed' }, 405)
   }
 
-  const { user, error: authError } = await getVerifiedUser(req)
+  const { user, error: authError } = await getVerifiedUser(req, { allowBanned: true })
   if (!user) return json({ success: false, error: authError }, 401)
 
   const admin = getAdminClient()

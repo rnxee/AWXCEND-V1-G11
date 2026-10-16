@@ -52,6 +52,50 @@ def test_call_sends_bearer_and_refreshes_once_on_401():
     assert saved[-1]["refresh_token"] == "ref2"
 
 
+def test_a_401_that_is_an_answer_is_not_retried():
+    seen = []
+
+    def handler(req):
+        seen.append(req.url.path)
+        return httpx.Response(401, json={"success": False, "errors": ["Incorrect password."]})
+
+    api, _ = make(handler)
+    api.set_session(session(1))
+    with pytest.raises(ApiError) as e:
+        api.call("delete-account", "POST", {"confirm_username": "ash", "password": "typo"})
+    assert str(e.value) == "Incorrect password." and seen == ["/functions/v1/delete-account"]
+    assert api.session["access_token"] == "tok1"  # no refresh, still signed in
+
+
+def test_a_banned_player_is_signed_out_with_the_reason():
+    seen = []
+
+    def handler(req):
+        seen.append(req.url.path)
+        return httpx.Response(401, json={"success": False,
+                                         "error": "Account suspended until Oct 20, 2026, 3:00 PM. Reason: Spam"})
+
+    api, saved = make(handler)
+    api.set_session(session(1))
+    with pytest.raises(ApiError) as e:
+        api.call("profile")
+    assert e.value.code == "SUSPENDED" and "Reason: Spam" in str(e.value)
+    assert seen == ["/functions/v1/profile"] and api.session is None and saved[-1] is None  # no refresh
+
+
+def test_a_ban_found_at_token_refresh_says_suspended():
+    def handler(req):
+        if req.url.path == "/auth/v1/token":
+            return httpx.Response(400, json={"code": 400, "error_code": "user_banned", "msg": "User is banned"})
+        return httpx.Response(401, json={"error": "Invalid or expired token"})
+
+    api, _ = make(handler)
+    api.set_session(session(1))
+    with pytest.raises(ApiError) as e:
+        api.call("profile")
+    assert e.value.code == "SUSPENDED" and "suspended" in str(e.value) and api.session is None
+
+
 def test_failed_refresh_signs_out():
     def handler(req):
         if req.url.path == "/auth/v1/token":

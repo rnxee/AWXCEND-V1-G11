@@ -5,6 +5,7 @@ import flet as ft
 
 import ui
 from api import ApiError
+from views import legal
 
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -72,28 +73,21 @@ def signup(app) -> ft.Control:
     path = ui.dropdown("Training path", ui.FOCUS_TYPES, "hybrid", expand=True)
     weight = ui.number_field("Weight (kg)", decimals=True, expand=True)
     height = ui.number_field("Height (cm)", decimals=True, expand=True)
-    age = ui.number_field("Age", expand=True)
+    age = ui.number_field(f"Age ({legal.MIN_AGE}+)")
     sex = ui.dropdown("Sex", [("male", "Male"), ("female", "Female")], expand=True)
     goal = ui.dropdown("Goal", [("bulk", "Bulk"), ("cut", "Cut"), ("maintain", "Maintain")], expand=True)
-    agree = ft.Checkbox(label="I have read the privacy notice", value=False)
+    agree, agree_row = legal.agreement(f"I am {legal.MIN_AGE} or older, and I agree to the Terms of Use and the "
+                                       "Privacy Policy, including the use of my body information to set my targets.")
     error = ft.Text("", color=ui.C.danger, visible=False)
-    notice: dict = {}
+    notices: dict = {}
 
     def load_notice():
         try:
             data = app.api.call("privacy", anon=True)
-            notice.update(data["notices"]["privacy_notice"])
+            if all(k in data["notices"] for k in legal.MUST_ACCEPT):
+                notices.update(data["notices"])
         except (ApiError, KeyError, TypeError):
             pass  # checked again on submit
-
-    def read_notice(e):
-        if not notice:
-            app.toast("Couldn't load the privacy notice. Check your connection.", error=True)
-            return
-        app.page.show_dialog(ft.AlertDialog(
-            title=ft.Text(notice["title"]), scrollable=True,
-            content=ft.Container(ft.Markdown(notice["body"]), width=520),
-            actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
 
     def fail(msg: str):
         error.value, error.visible = msg, True
@@ -111,8 +105,13 @@ def signup(app) -> ft.Control:
             problems.append("matching passwords")
         if not u:
             problems.append("a username")
+        if not age.value:
+            problems.append("your age")
+        elif int(age.value) < legal.MIN_AGE:
+            fail(f"Sorry, AWXCEND is for people {legal.MIN_AGE} and over.")
+            return
         if not agree.value:
-            problems.append("to read and accept the privacy notice")
+            problems.append("to accept the Terms of Use and Privacy Policy")
         if problems:
             fail("Please add " + ", ".join(problems) + ".")
             return
@@ -122,10 +121,10 @@ def signup(app) -> ft.Control:
         app.run(work, u)
 
     def work(u: str):
-        if not notice:
+        if not notices:
             load_notice()
-        if not notice:
-            fail("Couldn't load the privacy notice. Check your connection and try again.")
+        if not notices:
+            fail("Couldn't load the Terms of Use and Privacy Policy. Check your connection and try again.")
             return
         try:
             if app.api.sign_up(email.value.strip(), password.value) is None:
@@ -134,10 +133,11 @@ def signup(app) -> ft.Control:
         except ApiError as ex:
             fail(str(ex))
             return
-        body = {"username": u, "privacy_notice_version": notice["version"], "focus_type": path.value,
+        body = {"username": u, "privacy_notice_version": notices["privacy_notice"]["version"],
+                "terms_version": notices["terms_of_use"]["version"], "focus_type": path.value,
                 "weight_kg": float(weight.value) if weight.value else None,
                 "height_cm": float(height.value) if height.value else None,
-                "age": int(age.value) if age.value else None, "sex": sex.value, "goal": goal.value}
+                "age": int(age.value), "sex": sex.value, "goal": goal.value}
         try:
             app.api.call("register", "POST", body)
             app.load_me()
@@ -155,10 +155,10 @@ def signup(app) -> ft.Control:
     go_btn = ui.button("Create account", submit, width=float("inf"))
     app.run(load_notice)
     return _frame(app, ui.card(ft.Column([
-        ui.heading("Create your account", 20), email, password, confirm, username, path,
+        ui.heading("Create your account", 20), email, password, confirm, username, age, path,
         ft.ExpansionTile(title=ft.Text("About you (optional)"), controls_padding=ft.Padding.only(top=8),
-                         controls=[ft.Column([ft.Row([weight, height]), ft.Row([age, sex]), goal], spacing=10)]),
-        ft.Row([agree, ui.button("Read notice", read_notice, kind="text")], wrap=True),
+                         controls=[ft.Column([ft.Row([weight, height]), ft.Row([sex, goal])], spacing=10)]),
+        legal.links(app, notices), agree_row,
         error, go_btn,
         ui.button("I already have an account", lambda e: app.show_auth("login"), kind="text"),
     ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), padding=20))

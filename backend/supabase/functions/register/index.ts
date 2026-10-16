@@ -2,6 +2,7 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getAdminClient } from '../_shared/supabaseAdmin.ts'
 import { getVerifiedUser } from '../_shared/auth.ts'
 import { registerIdentity } from '../_shared/signupRules.ts'
+import { MIN_AGE } from '../_shared/validation.ts'
 import {
   DEFAULT_SPECIALIZATION,
   isSpecialization,
@@ -49,10 +50,14 @@ Deno.serve(async (req) => {
   if (weightKg !== null && (!Number.isFinite(weightKg) || weightKg <= 0 || weightKg >= 500)) errors.push('weight_kg must be between 0 and 500')
   if (heightCm !== null && (!Number.isFinite(heightCm) || heightCm <= 0 || heightCm >= 300)) errors.push('height_cm must be between 0 and 300')
   if (sex !== null && !ALLOWED_SEX.includes(sex)) errors.push(`sex must be one of: ${ALLOWED_SEX.join(', ')}`)
-  if (age !== null && (!Number.isInteger(age) || age <= 0 || age >= 120)) errors.push('age must be a whole number between 0 and 120')
+  if (age === null) errors.push('age is required')
+  else if (!Number.isInteger(age) || age <= 0 || age >= 120) errors.push('age must be a whole number between 0 and 120')
+  else if (age < MIN_AGE) errors.push(`AWXCEND is for people ${MIN_AGE} and over.`)
   if (goal !== null && !ALLOWED_GOALS.includes(goal)) errors.push(`goal must be one of: ${ALLOWED_GOALS.join(', ')}`)
   const noticeVersion = typeof body.privacy_notice_version === 'string' ? body.privacy_notice_version : ''
   if (!noticeVersion) errors.push('Please read and acknowledge the privacy notice to create an account.')
+  const termsVersion = typeof body.terms_version === 'string' ? body.terms_version : ''
+  if (!termsVersion) errors.push('Please read and accept the Terms of Use to create an account.')
 
   if (errors.length > 0) {
     return new Response(JSON.stringify({ success: false, errors }), {
@@ -66,10 +71,11 @@ Deno.serve(async (req) => {
   // The acknowledged version must be the current one, so the record shows the
   // notice the person actually saw.
   const { data: currentNotice } = await admin.rpc('current_notice_version', { p_consent_type: 'privacy_notice' })
-  if (!currentNotice || currentNotice !== noticeVersion) {
+  const { data: currentTerms } = await admin.rpc('current_notice_version', { p_consent_type: 'terms_of_use' })
+  if (!currentNotice || currentNotice !== noticeVersion || !currentTerms || currentTerms !== termsVersion) {
     return new Response(JSON.stringify({
       success: false, code: 'NOTICE_VERSION_OUTDATED',
-      error: 'The privacy notice was updated. Please reload the page and read the current version.'
+      error: 'The Terms of Use or Privacy Policy were updated. Please go back and read the current version.'
     }), {
       status: 409,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -146,8 +152,12 @@ Deno.serve(async (req) => {
     p_user_id: id, p_consent_type: 'privacy_notice', p_notice_version: noticeVersion
   })
   if (consentError) console.error('[register] consent record failed:', consentError.message)
+  const { error: termsError } = await admin.rpc('record_consent', {
+    p_user_id: id, p_consent_type: 'terms_of_use', p_notice_version: termsVersion
+  })
+  if (termsError) console.error('[register] terms record failed:', termsError.message)
 
-  return new Response(JSON.stringify({ success: true, consent_recorded: !consentError }), {
+  return new Response(JSON.stringify({ success: true, consent_recorded: !consentError && !termsError }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })

@@ -1,6 +1,6 @@
 # AWXCEND rebuild journal: Python + Flet
 
-This is a record of how we rebuilt AWXCEND in Python and Flet between 26 and 27 September 2026. It covers the problems we ran into, how we solved them, and what we learned. To run or build the app, see the [README](../README.md).
+This is a record of how we rebuilt AWXCEND in Python and Flet between 26 and 27 September 2026, and how we fixed and extended it after the first release (16 October 2026). It covers the problems we ran into, how we solved them, and what we learned. To run or build the app, see the [README](../README.md).
 
 ## At a glance
 
@@ -9,9 +9,9 @@ This is a record of how we rebuilt AWXCEND in Python and Flet between 26 and 27 
 | What | The first version of AWXCEND, a gamified fitness tracker, rebuilt in Python |
 | UI framework | [Flet](https://flet.dev) 0.86 (Python on top of Flutter) |
 | Platforms | Windows desktop app, and an Android APK |
-| Backend | Our own Supabase project: Postgres with Row Level Security, Auth, and 57 Edge Functions |
+| Backend | Our own Supabase project: Postgres with Row Level Security, Auth, and 60 Edge Functions |
 | Camera | OpenCV + MediaPipe Pose, desktop only |
-| Tests | 72 automated tests, including 7 real recorded workout sets |
+| Tests | 113 app tests (including 7 real recorded workout sets) and 5 server-rule tests, run by GitHub Actions on every push |
 | Builds | Windows: 311 MB folder. Android: 143 MB APK |
 
 ## Background
@@ -80,6 +80,22 @@ Decisions we made at the start:
     - Published v1.0.0 on GitHub with the Windows and Android downloads.
     - Connected the AI coach.
     - Tested the APK on a real phone: every feature worked as intended.
+
+**After release: 16 October**
+
+12. **Bug sweep.** A full review of the app found the forgot-password failure, lost logins when offline, duplicate saves, wrong times, and phone layouts that broke. All fixed and released as a commit.
+13. **Features the web app had and we didn't:**
+    - roles in the admin panel (moderator and admin sections);
+    - moderation sanctions: ban an account, or restrict posting, chat, DMs, friend requests or reporting, for a set time or permanently;
+    - account and privacy: download your data, hide or delete your account, report a problem;
+    - routines, the monthly training plan, missions, the shop, the collection and the Dungeon board;
+    - deleting a workout logged by mistake, and deleting a meal.
+14. **Acceptance check.** We audited the app the way a professor would check it. It scored 72/100, "launchable with caveats", and listed what to fix next.
+15. **Hardening.**
+    - Custom email (Brevo SMTP) so password resets reach everyone.
+    - Automatic tests on GitHub.
+    - Limits on hidden characters and on chat message length.
+    - A security review.
 
 ## Problems we hit and how we solved them
 
@@ -200,6 +216,8 @@ This was a deliberate decision at the start of the project, not a missing featur
 - **Text fields are 300 px wide by default,** so they stopped short of the card on desktop. Form columns now stretch their children.
 - **A row set to wrap shrinks to its content** instead of filling the card.
 - **Shared preferences, the file picker and route changes are async** in this Flet version.
+- **A toast (SnackBar) counts as a dialog.** `page.pop_dialog()` closed the toast instead of the dialog under it. `App.close_dialog()` skips toasts.
+- **An input filter that allows a pattern refuses the whole keystroke** when the result wouldn't match, and keeps the old text. A filter that *denies* a pattern removes only the matching characters. We use the first kind for numbers and the second for hidden characters.
 
 ### Design
 
@@ -223,6 +241,96 @@ The first version worked but looked "too plain and boring".
 - **Before every push we scan for secrets.**
   - The only key in the repo is Supabase's *publishable* key, which is safe to share because Row Level Security protects the data.
   - The service key, the API keys and the `.env` files never enter the repo.
+
+### After release (16 October)
+
+**1. Forgot password sent no email to most people.**
+- **Cause:** Supabase's built-in email only delivers to members of the Supabase organisation, and only 2 emails an hour for the whole project. Everyone else got nothing. The app also misread some errors, because Supabase Auth names the error in `error_code` on some replies and `code` on others.
+- **Fix:**
+  - Custom SMTP through Brevo, set up by the project owner. The SMTP key lives only in the Supabase dashboard, never in the repo.
+  - A higher email limit.
+  - In the app: clear messages for "email not allowed", "too many emails", "link expired" and "account suspended". The pasted link is decoded properly, the new password must be typed twice, and Enter submits.
+- **Lesson:** a feature that works for the team can still fail for everyone else. Test with an account that isn't one of ours.
+
+**2. The app logged you out whenever you opened it offline.**
+- **Cause:** a failed token refresh was treated as "session expired", even when the real reason was no internet.
+- **Fix:** the saved login is kept when the server can't be reached, and the app says why it couldn't connect.
+
+**3. Small bugs from a full review:**
+- **Double saves.** Tapping Save twice quickly logged two workouts. Buttons now lock while saving.
+- **Wrong times.** Some database columns store UTC without saying so, so "2 hours ago" showed in the wrong time zone. Times without a zone are now read as UTC.
+- **A lone "." in a number box crashed the form.** The decimal pattern now refuses it but still allows ".5".
+- **Phone layouts.** Four food totals in one row broke numbers in half at 360 px, so they now sit in a 2 × 2 grid.
+
+**4. Bans had to stop a player straight away, not after their login expired.**
+- **Cause:** a signed-in player's access token stays valid for up to an hour.
+- **Fix:**
+  - The sanctions function sets an Auth ban, so the player can't sign in or refresh.
+  - Every Edge Function also checks for an active ban on each request, so it takes effect at once.
+  - The player sees the reason and the end date.
+  - Export, delete account and privacy choices still work while banned: a sanction limits the game, never someone's rights over their own data.
+- **Rules:**
+  - moderators can't sanction admins or each other;
+  - only an admin can lift a sanction an admin issued;
+  - nobody can lift their own;
+  - every action goes in the audit log.
+  - These rules are pure functions with their own tests.
+
+**5. Deleting a workout had to take back exactly what it gave.**
+- **Cause:** a workout changes total XP, path XP and rank, attribute points and personal records. Undoing it in several steps could leave half of them changed if something failed in the middle.
+- **Fix:**
+  - One database function does it all in a single transaction, the same way logging a workout does.
+  - It only allows hand-logged workouts from the last 24 hours that weren't part of a mission or dungeon and come from your current path. That way deleting can't be used to farm rewards.
+
+**6. `supabase db push` said "Remote migration versions not found", and deploy said "No Functions found".**
+- **Cause:** both commands were run from the `src` folder. The Supabase CLI looks for a `supabase` folder in the current folder, so it saw no migrations and no functions.
+- **Fix:** run them from `backend`.
+
+**7. Hidden characters and endless messages.**
+- **Cause:** text boxes accepted:
+  - zero-width spaces, which can make two names look the same;
+  - text-direction overrides, which make "gnp.exe" display as "exe.png";
+  - control codes;
+  - "zalgo" text with piles of stacked accent marks that draw over other messages.
+- **Fix:**
+  - Every text box except passwords blocks those characters.
+  - The server removes them again and cuts accent stacks to two, because the app is not the only way to call the server.
+  - Chat and DM messages are limited to 100 words.
+  - Emoji and accented letters still work.
+
+**8. Security review.** We went through every Edge Function and the database permissions:
+- **Already good:**
+  - every function checks the login;
+  - admin actions check the role on the server;
+  - every table has Row Level Security;
+  - the only key in the app is the publishable one;
+  - nothing secret is in the Git history;
+  - update-profile accepts only the fields it lists;
+  - uploads check the file type, size and path.
+- **Fixed:**
+  - **Direct database writes.** Routines and camera templates could be written straight through the database API with the public key. That skipped the length limits and rate limits, so it was an easy way to fill the database. A migration now removes that access. The app always went through the Edge Functions anyway.
+  - **Ban check gaps.** Four moderator functions had their own copy of the login check, without the ban check. A banned moderator could have kept handling reports for up to an hour. They now use the shared check.
+  - **Build zip.** A build zip could have been committed by accident, so `*.zip` is now ignored.
+- **Accepted for now:**
+  - **The rate limiter "fails open".** If the counter table is unreachable, requests are allowed rather than blocking the whole app.
+  - **Some error messages pass on database wording.** That can reveal table names but no data.
+  - **Rate limits only on actions that write or cost money.** Reading screens aren't rate-limited.
+- **Load:**
+  - Edge Functions scale automatically, and they talk to the database over HTTP, so there are no connection pools or load balancers for us to run.
+  - The main load is chat polling: one request every 5 seconds per open chat screen.
+  - Supabase Realtime would replace polling if the app grew past a few hundred people chatting at once.
+
+**9. Legal documents described the wrong app.**
+- **Cause:** the privacy notice we cloned described the web app: GPS runs, and downloads from Google and jsDelivr. There were no Terms of Use, no age limit, and no cookie policy.
+- **Fix:**
+  - **Three documents written for this app,** under Philippine law: Terms of Use, a Privacy Policy and a Cookie and Local Storage Policy.
+    - The Privacy Policy follows the Data Privacy Act of 2012 (RA 10173).
+    - The Terms cover health and safety, community rules (Safe Spaces Act, cyber libel), fair play, game items with no money value, "as is" service and governing law.
+    - The cookie policy says the app sets no cookies, and lists what it stores on the device.
+  - **Versioned on the server,** like the old notice, so a new version reaches every app without a rebuild.
+  - **Adults only.** Sign-up needs an age of 18 or over and acceptance of the Terms and Privacy Policy, and the server records both. Profile edits can't set an age under 18 either.
+  - **Updated versions must be accepted.** When a document changes, signed-in players are asked to accept it, or they can sign out.
+- **Note:** these are written in-house, not by a lawyer. Have them reviewed before any real public launch.
 
 ## What works where, and why
 
@@ -283,8 +391,7 @@ The first version worked but looked "too plain and boring".
 ### Limits that come from our services, not from Flet
 
 - **Supabase's free plan:**
-  - it can't customise emails;
-  - it only sends a few emails per hour;
+  - its built-in email only reaches members of the Supabase organisation, 2 an hour. We send through Brevo's SMTP instead (300 emails a day on Brevo's free plan);
   - it **pauses a project after about a week with no activity.** Open the Supabase dashboard and restore it before a demo if it's been quiet.
 - **The USDA demo key is rate-limited.** A free personal key from api.data.gov raises the limit.
 - **The AI coach runs on the leader's own PC** through Ollama and a tunnel. When that PC is off, the AI coach is unavailable.
@@ -303,7 +410,7 @@ The first version worked but looked "too plain and boring".
 - check the phone camera settings (640×480, orientation) before testing any counter;
 - ask for repository access before the day we need to push.
 
-## Known limitations (as of 27 September 2026)
+## Known limitations (as of 16 October 2026)
 
 The full reasons are in "What works where, and why" above.
 
@@ -317,3 +424,5 @@ The full reasons are in "What works where, and why" above.
 - **The Supabase project pauses after about a week of inactivity** (free plan). Restore it before a demo.
 - **The Windows app isn't code-signed,** so SmartScreen warns on the first run.
 - **Only the Windows and Android builds exist.** Mac, Linux and iPhone builds have to be made on those systems.
+- **Chat and DM messages can't be edited or deleted,** and a logged workout or meal can be deleted but not edited.
+- **Dungeon fights, food photo scan, coach verification and the admin food and dungeon editors** exist on the server but have no screen in this app yet.
