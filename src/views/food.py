@@ -53,12 +53,49 @@ def view(app) -> ft.Control:
                            ui.body(f"{l.get('meal_period', '')} · {float(l.get('weight_g') or 0):g} g", size=12)],
                           spacing=2, expand=True),
                 ft.Text(f"{round(float(l.get('calories') or 0))} kcal", color=ui.C.gold),
+                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit meal",
+                              on_click=lambda e, l=l: edit_dialog(l)),
                 ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete meal",
                               on_click=lambda e, l=l: confirm_delete(l)),
             ]), padding=12)
             for l in logs[:15]
         ] or [ui.empty("No meals logged yet.", ft.Icons.RESTAURANT)]
         app.page.update()
+
+    def edit_dialog(meal):
+        was = float(meal.get("weight_g") or 0) or 1.0
+        grams = ui.number_field("Amount (g)", f"{was:g}", decimals=True)
+        period = ui.dropdown("Meal", [(p, p) for p in PERIODS], meal.get("meal_period") or PERIODS[0])
+        preview = ui.body("", color=ui.C.text)
+
+        def refresh(e=None):
+            kcal = float(meal.get("calories") or 0) * float(grams.value or 0) / was
+            preview.value = f"{round(kcal)} kcal"
+            preview.update()
+
+        def save(e):
+            g = float(grams.value or 0)
+            if not 0 < g <= 5000:
+                app.toast("Amount must be between 1 and 5000 g.", error=True)
+                return
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("edit-meal", "POST", {"meal_log_id": meal["id"], "weight_g": g,
+                                                       "meal_period": period.value})
+                    app.toast("Meal updated.")
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                load_logs()
+            app.run(work)
+        grams.on_change = refresh
+        preview.value = f"{round(float(meal.get('calories') or 0))} kcal"
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text(f"Edit {meal.get('food_name', 'meal')}"),
+            content=ft.Container(ft.Column([ft.Row([grams, period], spacing=10), preview], tight=True, spacing=12),
+                                 width=440),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
 
     def confirm_delete(meal):
         def go(e):

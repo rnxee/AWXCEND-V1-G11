@@ -36,13 +36,8 @@ def deletable(w: dict, now: datetime | None = None) -> bool:
     refuses mission/dungeon sets and anything from before a path change, and says why)."""
     if w.get("workout_source") != "manual" or not w.get("id"):
         return False
-    try:
-        t = datetime.fromisoformat((w.get("logged_at") or "").replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)  # workout_logs.logged_at is UTC without saying so
-    return (now or datetime.now(timezone.utc)) - t < timedelta(hours=24)
+    t = ui.parse_time(w.get("logged_at"))
+    return t is not None and (now or datetime.now(timezone.utc)) - t < timedelta(hours=24)
 
 
 def confirm_delete_workout(app, w: dict, after) -> None:
@@ -64,6 +59,41 @@ def confirm_delete_workout(app, w: dict, after) -> None:
         content=ft.Text(f"{workout_line(w)}\nThe {w.get('xp_earned') or 0} XP it earned is taken back."),
         actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
                  ui.button("Delete", go, kind="danger")]))
+
+
+def edit_workout(app, w: dict, after) -> None:
+    """Correct a manual workout's numbers. The server takes the old one back and logs the new one in a
+    single transaction, so XP and rank always match (edit-workout)."""
+    timed = bool(w.get("duration_seconds"))
+    sets = ui.number_field("Sets", w.get("sets") or 1, expand=True)
+    reps = ui.number_field("Reps", w.get("reps") or "", expand=True)
+    weight = ui.number_field("Weight (kg)", f"{w['weight_kg']:g}" if w.get("weight_kg") else "", decimals=True, expand=True)
+    seconds = ui.number_field("Time (seconds)", w.get("duration_seconds") or "")
+
+    def save(e):
+        body = {"workout_log_id": w["id"]}
+        if timed:
+            body["duration_seconds"] = int(seconds.value or 0)
+        else:
+            body.update(sets=int(sets.value or 0), reps=int(reps.value or 0),
+                        weight_kg=float(weight.value) if weight.value else None)
+        app.close_dialog()
+
+        def work():
+            try:
+                res = app.api.call("edit-workout", "POST", body)
+                app.load_me()
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                return
+            app.toast(f"Workout updated · {res.get('previous_xp', 0)} → {res.get('xp_earned', 0)} XP")
+            after()
+        app.run(work)
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text(f"Edit {workout_line({'exercise': w.get('exercise')})}"),
+        content=ft.Container(ft.Column([seconds] if timed else [ft.Row([sets, reps]), weight], tight=True, spacing=12),
+                             width=360),
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
 
 
 def view(app) -> ft.Control:
@@ -126,7 +156,9 @@ def view(app) -> ft.Control:
                 ft.Column([ft.Text(f"+{w.get('xp_earned') or 0} XP", color=ui.C.primary_bright, font_family="LatoBold"),
                            ui.body(ui.when(w.get("logged_at", "")), size=11)],
                           horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0),
-                *([ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete workout",
+                *([ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit workout",
+                                 on_click=lambda e, w=w: edit_workout(app, w, lambda: app.go("home"))),
+                   ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete workout",
                                  on_click=lambda e, w=w: confirm_delete_workout(app, w, lambda: app.go("home")))]
                   if deletable(w) else [])])
         for w in recent

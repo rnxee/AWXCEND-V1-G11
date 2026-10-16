@@ -1,6 +1,8 @@
 """Routines, the strength board, admin sections by role, and deleting an account."""
 import json
+from datetime import datetime, timezone
 
+import flet as ft
 import httpx
 import pytest
 
@@ -172,3 +174,103 @@ def test_a_deleted_account_is_signed_out():
     app, _, sent = deleting(httpx.Response(200, json={"success": True}))
     assert len(sent) == 1 and app.dialogs == [] and app.screens == ["login"]
     assert app.api.session is None and app.saved[-1] is None
+
+
+def test_editing_and_deleting_your_own_workout_and_meal():
+    from flet.controls.base_control import BaseControl
+
+    from fakes import walk
+    from views import food
+    from views.home import edit_workout
+    sent = []
+
+    def handler(req):
+        if req.method == "POST":
+            sent.append((req.url.path.rsplit("/", 1)[-1], json.loads(req.content)))
+            return httpx.Response(200, json={"success": True, "xp_earned": 30, "previous_xp": 20})
+        if req.url.path.endswith("get-meal-logs"):
+            return httpx.Response(200, json={"logs": [{"id": "meal1", "food_name": "Rice", "calories": 260,
+                                                       "weight_g": 200, "meal_period": "Lunch"}]})
+        return httpx.Response(200, json={"profile": {}})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    done = []
+    edit_workout(app, {"id": "w1", "exercise": "squat", "sets": 3, "reps": 5, "weight_kg": 60.0}, lambda: done.append(1))
+    form = fields(app.dialogs[-1])
+    assert (form["Sets"].value, form["Reps"].value, form["Weight (kg)"].value) == ("3", "5", "60")
+    form["Reps"].value = "8"
+    button(app.dialogs[-1], "Save").on_click(None)
+    edit_workout(app, {"id": "w2", "exercise": "plank", "duration_seconds": 45}, lambda: None)
+    fields(app.dialogs[-1])["Time (seconds)"].value = "60"
+    button(app.dialogs[-1], "Save").on_click(None)
+
+    original, BaseControl.update = BaseControl.update, lambda self: None
+    try:
+        screen = food.view(app)
+        next(c for c in walk(screen) if getattr(c, "tooltip", None) == "Edit meal").on_click(None)
+        form = fields(app.dialogs[-1])
+        assert form["Amount (g)"].value == "200"
+        form["Amount (g)"].value = "300"
+        button(app.dialogs[-1], "Save").on_click(None)
+    finally:
+        BaseControl.update = original
+    assert sent == [
+        ("edit-workout", {"workout_log_id": "w1", "sets": 3, "reps": 8, "weight_kg": 60.0}),
+        ("edit-workout", {"workout_log_id": "w2", "duration_seconds": 60}),
+        ("edit-meal", {"meal_log_id": "meal1", "weight_g": 300.0, "meal_period": "Lunch"})]
+    assert done == [1] and app.toasts == ["Workout updated · 20 → 30 XP", "Workout updated · 20 → 30 XP", "Meal updated."]
+
+
+def chat_with(messages: list[dict]):
+    """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
+    from views import social
+    calls = []
+
+    def fetch(before):
+        if app.cleanups:  # one poll only: the first fetch stops the loop
+            app.cleanups.pop()()
+        return list(messages), False
+
+    def change(action, m, text):
+        calls.append((action, m["id"], text))
+        if action == "delete":
+            messages[:] = [x for x in messages if x["id"] != m["id"]]
+        else:
+            for x in messages:
+                if x["id"] == m["id"]:
+                    x.update(message=text, edited_at="2026-10-16T12:01:00")
+
+    app = FakeApp(lambda req: httpx.Response(200, json={}))
+    panel = social.chat_panel(app, fetch, lambda t: None, lambda m: ft.Text(m["message"]), 0, "hint",
+                              mine=lambda m: m["user_id"] == "me", change=change)
+    return app, panel.controls[1], messages, calls
+
+
+def test_you_can_edit_and_delete_your_own_chat_messages_but_not_others():
+    import flet as ft_
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    msgs = [{"id": "m1", "user_id": "you", "message": "hi", "created_at": now},
+            {"id": "m2", "user_id": "me", "message": "my old text", "created_at": now},
+            {"id": "m3", "user_id": "me", "message": "gone soon", "created_at": now}]
+    app, lv, server, calls = chat_with(msgs)
+    assert [type(c) for c in lv.controls] == [ft_.Text, ft_.GestureDetector, ft_.GestureDetector]  # only mine tap
+
+    lv.controls[1].on_tap(None)
+    button(app.dialogs[-1], "Edit").on_click(None)
+    fields(app.dialogs[-1])["Message"].value = "my new text"
+    button(app.dialogs[-1], "Save").on_click(None)
+    assert calls == [("edit", "m2", "my new text")]
+    assert lv.controls[1].content.value == "my new text"  # shown straight away
+
+    lv.controls[2].on_tap(None)
+    button(app.dialogs[-1], "Delete").on_click(None)
+    assert calls[-1] == ("delete", "m3", None) and len(lv.controls) == 2
+
+
+def test_the_edit_button_is_only_offered_for_15_minutes():
+    from views.social import editable
+    now = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
+    assert editable({"created_at": "2026-10-16T11:50:00"}, now)          # naive UTC (chat)
+    assert editable({"created_at": "2026-10-16T11:50:00+00:00"}, now)    # with a zone (DMs)
+    assert not editable({"created_at": "2026-10-16T11:40:00"}, now)
+    assert not editable({"created_at": ""}, now)

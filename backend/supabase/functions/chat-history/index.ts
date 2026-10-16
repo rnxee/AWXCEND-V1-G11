@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
 
   let query = getAdminClient()
     .from('chat_messages')
-    .select('id, user_id, username, rank_badge, message, created_at')
+    .select('id, user_id, username, rank_badge, message, created_at, edited_at')
     .eq('flagged', false)
     .order('created_at', { ascending: false })
     .limit(limit + 1)

@@ -351,13 +351,17 @@ def screen(heading_text: str, *controls: ft.Control, actions: list[ft.Control] |
                         alignment=ft.Alignment.TOP_CENTER, expand=True)
 
 
-def when(iso: str) -> str:
-    """Server timestamp -> local 'Sep 26, 3:04 PM'. A timestamp without a zone is UTC: some columns
+def parse_time(iso: str) -> datetime | None:
+    """Server timestamp -> aware datetime. A timestamp without a zone is UTC: some columns
     (workout_logs.logged_at, chat_messages.created_at, users.created_at) store UTC without saying so."""
     try:
         t = datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
     except ValueError:
-        return ""
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)
-    return t.astimezone().strftime("%b %d, %I:%M %p").replace(" 0", " ")
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def when(iso: str) -> str:
+    """Server timestamp -> local 'Sep 26, 3:04 PM'."""
+    t = parse_time(iso)
+    return t.astimezone().strftime("%b %d, %I:%M %p").replace(" 0", " ") if t else ""

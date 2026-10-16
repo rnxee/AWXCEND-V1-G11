@@ -1,6 +1,7 @@
 """Social tab: Gymunnity feed + community chat, friends, direct messages, leaderboard."""
 import base64
 import threading
+from datetime import datetime, timedelta, timezone
 
 import flet as ft
 
@@ -12,6 +13,7 @@ REPORT_REASONS = [("harassment", "Harassment or bullying"), ("spam", "Spam"), ("
                   ("other", "Other")]
 MAX_IMAGE = 1_900_000  # create-post takes JPEGs up to ~2 MB
 MAX_CHAT_WORDS = 100  # chat-send and send-dm refuse more (MAX_CHAT_WORDS in _shared/validation.ts)
+EDIT_WINDOW = timedelta(minutes=15)  # EDIT_WINDOW_MINUTES in _shared/messageRules.ts
 
 
 def too_long(text: str) -> str | None:
@@ -79,9 +81,15 @@ def report_dialog(app, user_id: str, username: str, message: dict | None = None,
                  ui.button("Send report", send, kind="danger")]))
 
 
-def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str) -> ft.Control:
+def editable(m: dict, now: datetime | None = None) -> bool:
+    t = ui.parse_time(m.get("created_at"))
+    return t is not None and (now or datetime.now(timezone.utc)) - t < EDIT_WINDOW
+
+
+def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str, mine=None, change=None) -> ft.Control:
     """Messages newest at the bottom, 'Load older' paging, polling for new ones, and a composer.
-    fetch(before) -> (messages oldest-first, has_more); send(text); bubble(msg) -> control."""
+    fetch(before) -> (messages oldest-first, has_more); send(text); bubble(msg) -> control.
+    mine(msg) and change(action, msg, text) let people edit (15 min) or delete their own messages."""
     msgs: list[dict] = []
     state = {"has_more": False}
     stop = threading.Event()
@@ -89,8 +97,12 @@ def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str) -> ft.Control
     older = ui.button("Load older messages", lambda e: app.run(load_older), kind="text", visible=False)
     box = ui.field(hint, expand=True, max_length=500, on_submit=lambda e: submit())
 
+    def own(m):
+        b = bubble(m)
+        return ft.GestureDetector(b, on_tap=lambda e: own_menu(m)) if mine and mine(m) else b
+
     def render():
-        lv.controls = [bubble(m) for m in msgs] or [ui.empty("No messages yet. Say hi!", ft.Icons.CHAT_BUBBLE_OUTLINE)]
+        lv.controls = [own(m) for m in msgs] or [ui.empty("No messages yet. Say hi!", ft.Icons.CHAT_BUBBLE_OUTLINE)]
         older.visible = state["has_more"]
         try:
             app.page.update()
@@ -98,13 +110,68 @@ def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str) -> ft.Control
             stop.set()
 
     def merge(new: list[dict], front: bool = False):
-        seen = {m["id"] for m in msgs}
+        seen = {m["id"]: m for m in msgs}
         fresh = [m for m in new if m["id"] not in seen]
+        changed = False
+        for m in new:  # an edit made elsewhere (or just now) shows up on the next poll
+            old = seen.get(m["id"])
+            if old is not None and old.get("message") != m.get("message"):
+                old.update(m)
+                changed = True
+        if not front and new:  # a message inside the page just fetched that isn't in it any more was deleted
+            keep = {m["id"] for m in new}
+            first = min(m["created_at"] for m in new)
+            gone = [m for m in msgs if m["id"] not in keep and m["created_at"] >= first]
+            msgs[:] = [m for m in msgs if m not in gone]
+            changed = changed or bool(gone)
         if front:
             msgs[:0] = fresh
         else:
             msgs.extend(fresh)
-        return bool(fresh)
+        return bool(fresh) or changed
+
+    def own_menu(m):
+        def edit(e):
+            app.close_dialog()
+            edit_dialog(m)
+
+        def delete(e):
+            app.close_dialog()
+            app.run(act, "delete", m, None)
+        can = editable(m)
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Your message"), content=ft.Text(m.get("message", ""), color=ui.C.dim),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
+                     ui.button("Delete", delete, kind="text"),
+                     ui.button("Edit", edit) if can else ui.body("Editing closes after 15 minutes", size=11)]))
+
+    def edit_dialog(m):
+        box = ui.field("Message", value=m.get("message", ""), multiline=True, max_lines=4, max_length=2000)
+
+        def save(e):
+            text = box.value.strip()
+            if not text:
+                return
+            if problem := too_long(text):
+                app.toast(problem, error=True)
+                return
+            app.close_dialog()
+            app.run(act, "edit", m, text)
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Edit message"), content=ft.Container(box, width=420),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
+
+    def act(action, m, text):
+        try:
+            change(action, m, text)
+            page, _ = fetch(None)
+        except ApiError as ex:
+            app.toast(str(ex), error=True)
+            return
+        if action == "delete":  # the poll also drops it, but not until the next tick
+            msgs[:] = [x for x in msgs if x["id"] != m["id"]]
+        merge(page)
+        render()
 
     def load_older():
         try:
@@ -313,7 +380,8 @@ def chat(app) -> ft.Control:
         return ft.Container(ft.Column([
             ft.Row([ft.Text(m.get("username", ""), color=ui.C.accent if not mine else ui.C.primary_bright,
                             font_family="LatoBold", size=13),
-                    ui.body(ui.when(m.get("created_at")), size=11)], spacing=8),
+                    ui.body(ui.when(m.get("created_at")) + (" · edited" if m.get("edited_at") else ""), size=11)],
+                   spacing=8),
             ft.Text(m.get("message", ""), color=ui.C.text, selectable=True),
         ], spacing=2), padding=ft.Padding.symmetric(horizontal=12, vertical=8), border_radius=12,
             bgcolor=ui.fade(ui.C.primary, 0x22) if mine else ui.C.panel, on_click=None if mine else lambda e: message_menu(m))
@@ -328,7 +396,9 @@ def chat(app) -> ft.Control:
                                kind="text")]))
 
     panel = chat_panel(app, fetch, lambda t: app.api.call("chat-send", "POST", {"message": t}), bubble, 5,
-                       "Message the Gymunnity...")
+                       "Message the Gymunnity...", mine=lambda m: m.get("user_id") == app.api.user_id,
+                       change=lambda action, m, text: app.api.call(
+                           "chat-message", "POST", {"action": action, "id": m["id"], "message": text}))
     return ft.Container(panel, height=max(360, (app.page.height or 800) - 250))
 
 
@@ -439,7 +509,8 @@ def dm(app, friend: dict) -> ft.Control:
         mine = m.get("sender_id") == app.api.user_id
         return ft.Row([ft.Container(
             ft.Column([ft.Text(m.get("message", ""), color=ui.C.text, selectable=True),
-                       ui.body(ui.when(m.get("created_at")), size=10)], spacing=2,
+                       ui.body(ui.when(m.get("created_at")) + (" · edited" if m.get("edited_at") else ""), size=10)],
+                      spacing=2,
                       horizontal_alignment=ft.CrossAxisAlignment.END if mine else ft.CrossAxisAlignment.START),
             padding=ft.Padding.symmetric(horizontal=12, vertical=8), border_radius=14,
             bgcolor=ui.fade(ui.C.primary, 0x44) if mine else ui.C.panel_alt,
@@ -448,7 +519,10 @@ def dm(app, friend: dict) -> ft.Control:
             alignment=ft.MainAxisAlignment.END if mine else ft.MainAxisAlignment.START)
 
     panel = chat_panel(app, fetch, lambda t: app.api.call("send-dm", "POST", {"recipient_id": friend["id"], "message": t}),
-                       bubble, 4, f"Message {friend['username']}...")
+                       bubble, 4, f"Message {friend['username']}...",
+                       mine=lambda m: m.get("sender_id") == app.api.user_id,
+                       change=lambda action, m, text: app.api.call(
+                           "dm-message", "POST", {"action": action, "id": m["id"], "message": text}))
     head = ft.Row([ui.avatar(friend["username"], 36), ui.heading(friend["username"], 16)])
     return ui.screen("Messages", ft.Container(head, on_click=lambda e: open_profile(app, friend["id"])),
                      ft.Container(panel, height=max(360, (app.page.height or 800) - 220)))

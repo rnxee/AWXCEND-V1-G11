@@ -10,11 +10,11 @@ How we built it, the problems we hit and what we learned: [docs/REBUILD_JOURNAL.
 |---|---|
 | Account | Sign up (18 and over, accepting the Terms of Use and Privacy Policy), log in, reset a password by pasting the emailed link. Account & privacy: download your data, hide your account, delete it, join the relative strength board, report a problem. Legal: Terms of Use, Privacy Policy and Cookie Policy, and a prompt to accept updated versions |
 | Dashboard | Level and XP progress, rank, streak, quick actions, recent workouts, and any moderator restrictions on you |
-| Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones, and delete a mistake within 24 hours. Routines, a monthly training plan, Missions (boss fights cleared with your sets) and the Dungeon board |
+| Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones, and correct or delete a mistake within 24 hours. Routines, a monthly training plan, Missions (boss fights cleared with your sets) and the Dungeon board |
 | Profile | Personal records, Shop (spend gold on potions and streak restores), Collection |
 | Camera (desktop) | Rep counting for push-ups, squats, lunges and bicep curls, using MediaPipe Pose. The video can come from a webcam or your phone (Phone Link / DroidCam / Iriun as a webcam, or the IP Webcam app over Wi-Fi). **Rotate video** turns a sideways phone feed upright |
-| Food | Search foods, log portions by grams or serving, see today's calories and macros, delete a meal, and a food budget helper (cheapest protein per peso) |
-| Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages, XP and strength leaderboards |
+| Food | Search foods, log portions by grams or serving, see today's calories and macros, change the amount of a meal or delete it, and a food budget helper (cheapest protein per peso) |
+| Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages (edit your own for 15 minutes, delete any time), XP and strength leaderboards |
 | AI coach | Advice from your recent training and meals, after you accept the AI notice |
 | Admin | Moderators: reports, post queue, bug reports and **sanctions** (ban an account or restrict posting, chat, DMs, friend requests or reporting, for a set time or permanently). Admins also manage roles and read the audit log |
 
@@ -103,7 +103,8 @@ The group's Supabase project is `gwtdcxvfvnyfsvnbgneo`.
 - `migrations/20261016130000_delete_workout_log.sql` lets players delete a hand-logged workout within 24 hours, taking back its XP, rank, attribute points and strength record in one transaction.
 - `migrations/20261016140000_close_direct_writes.sql` is a security fix. Routines and camera templates can no longer be written straight through the database API, only through their Edge Functions.
 - `migrations/20261016150000_legal_documents.sql` publishes the Terms of Use, Privacy Policy and Cookie Policy. They are versioned and can't be edited once published. To change one, insert a new version: the app then asks every player to accept it.
-- `functions/` holds the 60 Edge Functions. Bans are checked in `_shared/auth.ts`, so every function refuses a banned player (except export, delete, privacy and abandon-signup: a sanction never blocks a player's rights over their own data). The pure rules are in `_shared/sanctionRules.ts`; test them with `node --test backend/supabase/functions/_shared/sanctionRules.test.ts`.
+- `migrations/20261016160000_edit_messages_and_workouts.sql` adds the "edited" marker to chat and direct messages, and `edit_workout_log`: a workout correction done as one transaction that takes the old workout back and logs the new numbers.
+- `functions/` holds the 64 Edge Functions. Bans are checked in `_shared/auth.ts`, so every function refuses a banned player (except export, delete, privacy and abandon-signup: a sanction never blocks a player's rights over their own data). The pure rules are in `_shared/sanctionRules.ts`; test them with `node --test backend/supabase/functions/_shared/sanctionRules.test.ts`.
 - After changing anything in `functions/_shared/`, redeploy all functions: each one bundles its own copy.
 - `config.toml` holds the auth settings: sign-in without email confirmation and a minimum password length of 8. The free plan can't customise emails without custom SMTP, so the default reset email (a link) is used and the app accepts the pasted link. `templates/recovery.html` (a code email) is ready for when custom SMTP is set up.
 

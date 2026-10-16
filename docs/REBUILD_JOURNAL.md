@@ -9,9 +9,9 @@ This is a record of how we rebuilt AWXCEND in Python and Flet between 26 and 27 
 | What | The first version of AWXCEND, a gamified fitness tracker, rebuilt in Python |
 | UI framework | [Flet](https://flet.dev) 0.86 (Python on top of Flutter) |
 | Platforms | Windows desktop app, and an Android APK |
-| Backend | Our own Supabase project: Postgres with Row Level Security, Auth, and 60 Edge Functions |
+| Backend | Our own Supabase project: Postgres with Row Level Security, Auth, and 64 Edge Functions |
 | Camera | OpenCV + MediaPipe Pose, desktop only |
-| Tests | 113 app tests (including 7 real recorded workout sets) and 5 server-rule tests, run by GitHub Actions on every push |
+| Tests | 121 app tests (including 7 real recorded workout sets) and 7 server-rule tests, run by GitHub Actions on every push |
 | Builds | Windows: 311 MB folder. Android: 143 MB APK |
 
 ## Background
@@ -332,6 +332,14 @@ The first version worked but looked "too plain and boring".
   - **Updated versions must be accepted.** When a document changes, signed-in players are asked to accept it, or they can sign out.
 - **Note:** these are written in-house, not by a lawyer. Have them reviewed before any real public launch.
 
+**10. Mistakes couldn't be fixed (the gap to a 90+ score).**
+- **Chat and DMs:** you can now edit your own message for 15 minutes and delete it any time (a DM disappears for both people). Edits follow the same rules as sending: 100 words, hidden characters stripped, and a muted player can't edit. An "edited" tag shows on the message.
+- **Meals:** change the amount, and calories and macros scale in proportion.
+- **Workouts:** correct sets, reps, weight or time.
+  - **Problem:** XP, rank, attribute points and the strength record all depend on those numbers, so patching the row would leave them wrong.
+  - **Fix:** an edit is "take the old workout back, log the new one", inside one database transaction, so a failure rolls back both halves. The original time is kept, so editing doesn't extend the 24-hour window. The same limits as deleting apply.
+- **Left out on purpose:** changing the exercise itself (delete and log again), and moderators deleting other people's chat messages.
+
 ## What works where, and why
 
 ### How one Python app runs on both Windows and Android
@@ -424,5 +432,4 @@ The full reasons are in "What works where, and why" above.
 - **The Supabase project pauses after about a week of inactivity** (free plan). Restore it before a demo.
 - **The Windows app isn't code-signed,** so SmartScreen warns on the first run.
 - **Only the Windows and Android builds exist.** Mac, Linux and iPhone builds have to be made on those systems.
-- **Chat and DM messages can't be edited or deleted,** and a logged workout or meal can be deleted but not edited.
 - **Dungeon fights, food photo scan, coach verification and the admin food and dungeon editors** exist on the server but have no screen in this app yet.
