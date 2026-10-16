@@ -47,17 +47,12 @@ def test_closing_a_form_also_closes_the_toast_shown_over_it():
     assert open_dialogs == []
 
 
-def test_text_fields_block_invisible_characters_but_passwords_are_untouched():
-    import re
-
+def test_text_fields_accept_typing():
+    # A deny-filter on every field once blocked all typing in the real app; hidden characters are
+    # stripped by the server (cleanText) instead.
     import ui
-    f = ui.field("Message")
-    assert f.input_filter.allow is False and f.input_filter.regex_string == ui.BAD_CHARS
-    assert ui.field("Password", password=True).input_filter is None
-    assert ui.number_field("Reps").input_filter.allow is True  # its own digits-only filter wins
-    hidden = "".join(map(chr, (0x200B, 0x202E, 0x0, 0xFEFF)))
-    assert re.sub(ui.BAD_CHARS, "", f"hi{hidden}\tthere\n") == "hi\tthere\n"
-    assert re.sub(ui.BAD_CHARS, "", chr(0x1F468) + chr(0x200D) + chr(0x1F469)) == chr(0x1F468) + chr(0x200D) + chr(0x1F469)
+    assert ui.field("Message").input_filter is None
+    assert ui.number_field("Reps").input_filter.allow is True  # numbers keep their digits-only filter
 
 
 def test_chat_word_limit():

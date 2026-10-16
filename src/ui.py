@@ -212,16 +212,9 @@ def _field_style() -> dict:
                 cursor_color=C.accent)
 
 
-# Typed or pasted characters that hide text or break layouts: control codes (newline and tab stay), zero-width
-# spaces, bidi overrides and the byte-order mark. Same set the server strips (cleanText in _shared/validation.ts).
-BAD_CHARS = "[" + "".join(f"\\u{a:04x}-\\u{b:04x}" for a, b in (
-    (0x0, 0x8), (0xb, 0x1f), (0x7f, 0x9f), (0x200b, 0x200c), (0x200e, 0x200f), (0x202a, 0x202e),
-    (0x2060, 0x2069), (0xfeff, 0xfeff))) + "]"
-
-
 def field(lbl: str, **kw) -> ft.TextField:
-    if not kw.get("password"):  # a password is compared as typed: never alter it
-        kw.setdefault("input_filter", ft.InputFilter(BAD_CHARS, allow=False))
+    # No input filter here: a deny-filter built from BAD_CHARS blocked ALL typing in the real app (the
+    # escapes don't survive the trip to Flutter). The server strips these characters (cleanText) anyway.
     return ft.TextField(label=lbl, **{**_field_style(), **kw})
 
 

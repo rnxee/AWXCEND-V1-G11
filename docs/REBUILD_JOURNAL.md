@@ -293,7 +293,7 @@ The first version worked but looked "too plain and boring".
   - control codes;
   - "zalgo" text with piles of stacked accent marks that draw over other messages.
 - **Fix:**
-  - Every text box except passwords blocks those characters.
+  - We first blocked them in every text box too, but that filter stopped ALL typing in the real app (the pattern didn't survive the trip from Python to Flutter), while our tests passed. We removed it: only the server cleans text now. **Lesson:** a test that checks a setting was applied doesn't prove the app still works; type in the real app.
   - The server removes them again and cuts accent stacks to two, because the app is not the only way to call the server.
   - Chat and DM messages are limited to 100 words.
   - Emoji and accented letters still work.

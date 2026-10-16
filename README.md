@@ -42,7 +42,7 @@ py -m pytest
 - The server's pure rules (sanctions, text cleaning) have their own tests: `node --test backend/supabase/functions/_shared/*.test.ts`.
 - GitHub Actions (`.github/workflows/tests.yml`) runs both on every push and pull request. The camera tests skip there because it installs no OpenCV.
 
-Text inputs block invisible characters (zero-width spaces, text-direction overrides, control codes), and the server strips them again along with "zalgo" stacks of accent marks. Chat and DM messages are capped at 100 words.
+The server strips invisible characters (zero-width spaces, text-direction overrides, control codes) from posts, chat and DMs, along with "zalgo" stacks of accent marks. Chat and DM messages are capped at 100 words.
 
 ## Build
 
