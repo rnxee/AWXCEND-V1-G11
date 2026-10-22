@@ -16,6 +16,6 @@ jobs:
         with:
           node-version: "24"
       # No OpenCV/MediaPipe: the camera tests skip themselves without them, everything else runs.
-      - run: pip install "flet==0.86.5" httpx pytest
+      - run: pip install "flet==0.86.5" "flet-geolocator==0.86.5" httpx pytest
       - run: python -m pytest -q
       - run: node --test backend/supabase/functions/_shared/*.test.ts

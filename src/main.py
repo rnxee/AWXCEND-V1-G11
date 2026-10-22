@@ -205,7 +205,8 @@ def selfcheck(out_path: str) -> None:
         with vision.PoseLandmarker.create_from_options(opts) as landmarker:
             frame = np.zeros((480, 640, 3), np.uint8)
             landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=frame), 0)
-        result = f"ok model={MODEL}"
+        import flet_geolocator  # noqa: F401  (GPS for runs and walks: must be inside the package too)
+        result = f"ok model={MODEL} geolocator"
     except Exception as e:  # report anything: this is a diagnostic
         result = f"FAILED {type(e).__name__}: {e}"
     with open(out_path, "w", encoding="utf-8") as f:

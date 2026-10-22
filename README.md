@@ -12,6 +12,7 @@ How we built it, the problems we hit and what we learned: [docs/REBUILD_JOURNAL.
 | Dashboard | Level and XP progress, rank, streak, quick actions, recent workouts, and any moderator restrictions on you |
 | Train | Log any of 35 exercises: sets × reps × weight (kg/lbs), or a duration for timed ones, and correct or delete a mistake within 24 hours. Routines, a monthly training plan, Missions (boss fights cleared with your sets) and the Dungeon board |
 | Profile | Personal records, Shop (spend gold on potions and streak restores), Collection |
+| Run / Walk (GPS) | Track a walk, jog or ruck with the phone's GPS: live distance, time and pace, then one workout is logged. Only the total distance and time are saved, never the route. Best on the Android app; a PC's location is too rough to count |
 | Camera (desktop) | Rep counting for push-ups, squats, lunges and bicep curls, using MediaPipe Pose. The video can come from a webcam or your phone (Phone Link / DroidCam / Iriun as a webcam, or the IP Webcam app over Wi-Fi). **Rotate video** turns a sideways phone feed upright |
 | Food | Search foods, log portions by grams or serving, see today's calories and macros, change the amount of a meal or delete it, and a food budget helper (cheapest protein per peso) |
 | Gymunnity | Fitness and food feed with photos, community chat, friends, direct messages (edit your own for 15 minutes, delete any time), XP and strength leaderboards |
@@ -21,7 +22,7 @@ How we built it, the problems we hit and what we learned: [docs/REBUILD_JOURNAL.
 ## Run it (Windows desktop)
 
 ```powershell
-py -m pip install "flet==0.86.5" httpx opencv-python mediapipe pytest
+py -m pip install "flet==0.86.5" "flet-geolocator==0.86.5" httpx opencv-python mediapipe pytest
 cd src
 py main.py
 ```
@@ -38,6 +39,7 @@ py -m pytest
 - `tests/test_replay.py` replays 7 real recorded camera sets; `test_stream.py`, `test_source.py` and `test_orient.py` cover the camera feed.
 - `tests/test_api.py` covers the backend client (sign-in, token refresh, password-reset links, bans, error messages) against a fake server.
 - `tests/test_auth_screens.py`, `test_features.py` and `test_game.py` drive the real screens against a fake server (`tests/fakes.py`): login and password reset, account deletion, routines, sanctions, deleting workouts and meals, missions and the shop.
+- `tests/test_gps.py` and `test_run.py` cover GPS distance (drift, jumps and weak readings don't count) and the Run / Walk screen with a fake GPS.
 - `tests/test_ui.py` covers the shared UI helpers (time zones, number fields, dialogs).
 - The server's pure rules (sanctions, text cleaning) have their own tests: `node --test backend/supabase/functions/_shared/*.test.ts`.
 - GitHub Actions (`.github/workflows/tests.yml`) runs both on every push and pull request. The camera tests skip there because it installs no OpenCV.
@@ -66,7 +68,7 @@ mkdir dist\android -Force; copy build\apk\awxcend.apk dist\android\
 
 `dist\android\awxcend.apk` is the file to install on the phone. Run the Windows and Android builds one after the other, not at the same time.
 
-The APK leaves out camera tracking, because MediaPipe for Python doesn't run on Android. `pyproject.toml` excludes the camera files from it. Every other screen works on the phone.
+The APK leaves out camera tracking, because MediaPipe for Python doesn't run on Android. GPS runs and walks do work there: the location add-on is a Flutter package, and `pyproject.toml` asks for foreground location permission only. `pyproject.toml` excludes the camera files from it. Every other screen works on the phone.
 
 ## Design
 
@@ -104,6 +106,7 @@ The group's Supabase project is `gwtdcxvfvnyfsvnbgneo`.
 - `migrations/20261016140000_close_direct_writes.sql` is a security fix. Routines and camera templates can no longer be written straight through the database API, only through their Edge Functions.
 - `migrations/20261016150000_legal_documents.sql` publishes the Terms of Use, Privacy Policy and Cookie Policy. They are versioned and can't be edited once published. To change one, insert a new version: the app then asks every player to accept it.
 - `migrations/20261016160000_edit_messages_and_workouts.sql` adds the "edited" marker to chat and direct messages, and `edit_workout_log`: a workout correction done as one transaction that takes the old workout back and logs the new numbers.
+- `migrations/20261022100000_gps_notices.sql` publishes the GPS notice shown before a first run, and new versions of the Terms of Use and Privacy Policy that cover location and outdoor safety (everyone is asked to accept them again).
 - `functions/` holds the 64 Edge Functions. Bans are checked in `_shared/auth.ts`, so every function refuses a banned player (except export, delete, privacy and abandon-signup: a sanction never blocks a player's rights over their own data). The pure rules are in `_shared/sanctionRules.ts`; test them with `node --test backend/supabase/functions/_shared/sanctionRules.test.ts`.
 - After changing anything in `functions/_shared/`, redeploy all functions: each one bundles its own copy.
 - `config.toml` holds the auth settings: sign-in without email confirmation and a minimum password length of 8. The free plan can't customise emails without custom SMTP, so the default reset email (a link) is used and the app accepts the pasted link. `templates/recovery.html` (a code email) is ready for when custom SMTP is set up.

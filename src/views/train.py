@@ -148,7 +148,7 @@ def view(app) -> ft.Control:
         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim),
     ], spacing=14), on_click=lambda e: open_camera(app), accent=ui.fade(ui.C.camera, 0x66))
 
-    from views import game, plan, routines  # local: these import this module
+    from views import game, plan, routines, run  # local: these import this module
 
     def entry(title, text, icon, color, screen):
         return ui.card(ft.Row([
@@ -158,6 +158,8 @@ def view(app) -> ft.Control:
         ], spacing=14), on_click=lambda e: app.open(screen), accent=ui.fade(color, 0x66))
 
     more = [
+        entry("Run or walk", "Track distance with your phone's GPS. Only the total is saved, never your route.",
+              ft.Icons.DIRECTIONS_RUN, ui.C.primary_bright, run.view),
         entry("Missions", "Boss fights you clear with your sets. Rewards XP, gold and collectibles.",
               ft.Icons.FLAG, ui.C.gold, lambda a: ui.screen("Missions", game.missions(a))),
         entry("Training plan", "A month of sessions made for your goal, days and equipment.",

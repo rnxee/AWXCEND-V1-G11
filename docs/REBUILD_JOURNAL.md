@@ -11,7 +11,7 @@ This is a record of how we rebuilt AWXCEND in Python and Flet between 26 and 27 
 | Platforms | Windows desktop app, and an Android APK |
 | Backend | Our own Supabase project: Postgres with Row Level Security, Auth, and 64 Edge Functions |
 | Camera | OpenCV + MediaPipe Pose, desktop only |
-| Tests | 121 app tests (including 7 real recorded workout sets) and 7 server-rule tests, run by GitHub Actions on every push |
+| Tests | 137 app tests (including 7 real recorded workout sets) and 7 server-rule tests, run by GitHub Actions on every push |
 | Builds | Windows: 311 MB folder. Android: 143 MB APK |
 
 ## Background
@@ -340,6 +340,15 @@ The first version worked but looked "too plain and boring".
   - **Fix:** an edit is "take the old workout back, log the new one", inside one database transaction, so a failure rolls back both halves. The original time is kept, so editing doesn't extend the 24-hour window. The same limits as deleting apply.
 - **Left out on purpose:** changing the exercise itself (delete and log again), and moderators deleting other people's chat messages.
 
+**11. GPS runs and walks.**
+- **Could we?** Yes, and unlike the camera it works on Android too. The location add-on (`flet-geolocator`, same version as Flet) is a Flutter package, not compiled Python, so the Android limit that blocked MediaPipe doesn't apply. The backend already scored distance exercises (Jogging, Walking, Rucking), so no new server function was needed.
+- **We tested before building.** A throwaway script on this PC showed the prebuilt Windows client already includes the add-on, permission and live position updates work, and a PC reports about 178 m accuracy (Wi-Fi location), far too rough to measure a run. So the screen shows "GPS too weak" and tells the player to use a phone outdoors.
+- **GPS is noisy, so counting every reading would hand out free distance.** `src/gps.py` only counts a reading if it is accurate (30 m or better), in time order, not a jump no runner could make (over 10 m/s), and at least 3 m from the last counted point (standing still drifts a few metres). It is pure Python with its own tests, and we broke each rule on purpose to check a test catches it. Faking your location on your own phone can't be stopped; the server still caps one log at 200 km.
+- **Privacy by design.** The route is only used in memory to add up distance and is never stored or sent. A new GPS notice, Terms and Privacy Policy version say so, and the first run asks for consent.
+- **Foreground only.** Tracking works while the screen is open (the screen is kept awake), and leaving the screen ends the run. Background tracking would need a notification and a store-policy review.
+- **A bug we caught by re-reading:** tapping Start twice quickly would have opened two GPS streams. A "starting" state now blocks it.
+- **Not yet tested on a real phone.** The Android build must include the add-on and location permission, and only a real walk proves the numbers. Do that before relying on it.
+
 ## What works where, and why
 
 ### How one Python app runs on both Windows and Android
@@ -423,6 +432,7 @@ The first version worked but looked "too plain and boring".
 The full reasons are in "What works where, and why" above.
 
 - **Camera tracking is desktop-only.** Use the phone as the camera for the desktop app.
+- **GPS runs and walks need a phone.** A PC's location is accurate to hundreds of metres, which can't measure a run. Tracking stops if you leave the screen, and it hasn't been tested on a real phone yet.
 - **The phone app can only post photos that are already JPEGs under 2 MB.**
 - **Camera sets are saved as manual logs** after you confirm the count.
 - **The AI coach only works while the leader's Ollama server and tunnel are running.**

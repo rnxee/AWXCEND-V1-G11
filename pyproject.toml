@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
   "flet==0.86.5",
   "httpx>=0.28",
+  "flet-geolocator==0.86.5",  # GPS for runs and walks (pinned with flet: they ship together)
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,11 @@ copyright = "AWXCEND group"
 
 [tool.flet.app]
 path = "src"
+
+[tool.flet.android.permission]
+# Foreground location only, for runs and walks. Not Flet's "location" preset, which also asks for background location.
+"android.permission.ACCESS_FINE_LOCATION" = true
+"android.permission.ACCESS_COARSE_LOCATION" = true
 
 [tool.flet.android.app]
 # Camera tracking is desktop-only (MediaPipe has no Android build): leave its model and code out of the APK.
