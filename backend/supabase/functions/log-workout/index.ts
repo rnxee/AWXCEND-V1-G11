@@ -35,6 +35,9 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}))
+  const rawRequestId = body.client_request_id
+  const requestId = typeof rawRequestId === 'string' && /^[0-9a-f-]{16,80}$/i.test(rawRequestId)
+    ? rawRequestId : null
   const exercise = typeof body.exercise === 'string' ? body.exercise.trim().toLowerCase() : ''
   const sets = Number(body.sets)
   const reps = Number(body.reps)

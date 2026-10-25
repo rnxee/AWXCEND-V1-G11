@@ -27,6 +27,27 @@ cd src
 py main.py
 ```
 
+## Offline use
+
+After a player has signed in, AWXCEND keeps an account-scoped local copy of
+workouts, meals, cached foods, routines and the current training plan in Flet
+SharedPreferences. Workout and meal saves are written locally before a network
+request, so airplane mode does not lose them. The Train and Food screens show
+pending or failed synchronization states, and the Home screen retries queued
+uploads at startup and through its Retry action.
+
+Previously loaded routines and plans remain available offline and show their
+last-updated time. Food search still needs the internet for a food that has not
+been loaded before. Server-side XP, gold, streaks and validation are only
+applied after synchronization; local saves never claim those rewards.
+
+The first deployment of offline upload idempotency requires the versioned
+Supabase migration in `backend/supabase/migrations/20261025100000_offline_sync_idempotency.sql`.
+Run `npx supabase db push` from `backend/`, then redeploy the changed
+`log-workout` and `log-meal` Edge Functions. Existing online requests remain
+compatible; until that migration is deployed, local records remain safely
+queued rather than being treated as synchronized.
+
 ## Tests
 
 ```powershell
