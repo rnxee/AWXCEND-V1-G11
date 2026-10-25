@@ -79,6 +79,9 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}))
+  const rawRequestId = body.client_request_id
+  const requestId = typeof rawRequestId === 'string' && /^[0-9a-f-]{16,80}$/i.test(rawRequestId)
+    ? rawRequestId : null
   const loggedMethod = typeof body.logged_method === 'string' ? body.logged_method.trim() : ''
   const foodName = typeof body.food_name === 'string' ? body.food_name.trim() : ''
   const mealPeriod = typeof body.meal_period === 'string' ? body.meal_period.trim() : ''
