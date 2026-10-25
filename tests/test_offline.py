@@ -46,6 +46,13 @@ class LostResponseApi(FakeApi):
         return self.committed
 
 
+class ExpiringApi(FakeApi):
+    def call(self, fn, method, body):
+        self.calls.append((fn, body))
+        self.user_id = None
+        raise RuntimeError("session expired")
+
+
 def test_workout_is_available_and_survives_store_reinitialization(tmp_path: Path):
     path = tmp_path / "offline.json"
     store = OfflineStore(file_path=path)
@@ -113,6 +120,17 @@ def test_retry_backoff_is_respected_unless_manually_forced(tmp_path: Path):
     assert store.sync(api, now=104) == {"synced": 0, "failed": 0, "pending": 1}
     assert api.calls == []
     assert store.sync(api, now=105) == {"synced": 1, "failed": 0, "pending": 0}
+
+
+def test_session_expiry_stops_before_sending_the_next_account_record(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    store.add_workout(workout())
+    store.add_workout({**workout(), "exercise": "deadlift"})
+    api = ExpiringApi()
+    result = store.sync(api, force=True)
+    assert result["failed"] == 1 and result["pending"] == 2
+    assert len(api.calls) == 1
 
 
 def test_meal_keeps_a_nutrition_snapshot_and_never_crosses_accounts(tmp_path: Path):

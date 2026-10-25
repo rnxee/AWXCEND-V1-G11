@@ -443,6 +443,8 @@ class OfflineStore:
         clock = time() if now is None else now
         result = {"synced": 0, "failed": 0, "pending": len(queue)}
         for operation in queue:
+            if getattr(api, "user_id", None) != uid:
+                break
             if not force and float(operation.get("next_attempt_at") or 0) > clock:
                 continue
             kind = operation.get("kind")
@@ -455,6 +457,8 @@ class OfflineStore:
             except Exception as exc:  # ApiError is kept optional for pure unit tests.
                 self._mark_failed(uid, operation["local_id"], operation["request_id"], str(exc), clock)
                 result["failed"] += 1
+                if getattr(api, "user_id", None) != uid:
+                    break
                 continue
             self._mark_synced(uid, operation, response or {})
             result["synced"] += 1
