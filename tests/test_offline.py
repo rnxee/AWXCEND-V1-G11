@@ -32,6 +32,20 @@ class FakeApi:
         return {"success": True, "log": {"id": "server-meal-1", **body}, "gold_awarded": 10}
 
 
+class LostResponseApi(FakeApi):
+    """The server commits the first call, but the client misses its response."""
+    def __init__(self):
+        super().__init__()
+        self.committed = None
+
+    def call(self, fn, method, body):
+        if self.committed is None:
+            self.committed = super().call(fn, method, body)
+            raise RuntimeError("response lost")
+        self.calls.append((fn, body))
+        return self.committed
+
+
 def test_workout_is_available_and_survives_store_reinitialization(tmp_path: Path):
     path = tmp_path / "offline.json"
     store = OfflineStore(file_path=path)

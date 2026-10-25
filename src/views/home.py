@@ -199,6 +199,23 @@ def view(app) -> ft.Control:
                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=ui.C.dim)]),
                                on_click=lambda e: social.open_tab(app, "friends"), accent=ui.fade(ui.C.accent, 0x66))]
 
+    pending = int(me.get("pending_sync") or app.store.queue_size())
+    if pending:
+        def retry_sync(e):
+            def work():
+                result = app.sync_pending()
+                if result["failed"]:
+                    app.toast("Some offline records are still waiting for a connection.", error=True)
+                else:
+                    app.toast("Offline records synchronized.")
+                app.go("home")
+            app.run(work)
+        friend_note += [ui.card(ft.Row([ft.Icon(ft.Icons.CLOUD_UPLOAD_OUTLINED, color=ui.C.gold),
+                                        ui.body(f"{pending} offline record{'s' if pending != 1 else ''} waiting to sync.", size=12,
+                                                expand=True),
+                                        ui.button("Retry", retry_sync, kind="text")]),
+                                accent=ui.fade(ui.C.gold, 0x88))]
+
     return ui.screen(
         "Dashboard", hero, stats, *friend_note,
         ui.section("Quick actions"), actions,

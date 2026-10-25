@@ -132,6 +132,7 @@ class App:
         self.layout()
         self.go(self.tab)
         self.run(legal.check_current, self)  # updated Terms or Privacy Policy: ask before carrying on
+        self.run(self.sync_pending)
 
     def layout(self) -> None:
         wide = self.wide = (self.page.width or 0) >= WIDE
