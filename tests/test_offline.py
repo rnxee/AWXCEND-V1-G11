@@ -81,3 +81,26 @@ def test_meal_keeps_a_nutrition_snapshot_and_never_crosses_accounts(tmp_path: Pa
     reopened.set_account(USER)
     assert reopened.list_meals()[0]["nutrition_snapshot"]["nutrition"]["protein"] == 5
 
+
+def test_cached_routines_and_plans_survive_restart(tmp_path: Path):
+    path = tmp_path / "offline.json"
+    store = OfflineStore(file_path=path)
+    store.set_account(USER)
+    store.cache_routines([{"id": "routine-1", "name": "Leg day", "routine_exercises": []}])
+    store.cache_plan({"today": "2026-10-25", "plan": {"id": "plan-1", "days": []}})
+
+    reopened = OfflineStore(file_path=path)
+    reopened.set_account(USER)
+    routines, routine_stamp = reopened.cached_routines()
+    plan, plan_stamp = reopened.cached_plan()
+    assert routines[0]["name"] == "Leg day" and routine_stamp
+    assert plan["plan"]["id"] == "plan-1" and plan_stamp
+
+
+def test_malformed_storage_starts_empty(tmp_path: Path):
+    path = tmp_path / "offline.json"
+    path.write_text("not-json", encoding="utf-8")
+    store = OfflineStore(file_path=path)
+    store.set_account(USER)
+    assert store.list_workouts() == [] and store.list_meals() == []
+
