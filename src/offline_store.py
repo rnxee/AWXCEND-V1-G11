@@ -14,6 +14,7 @@ from uuid import uuid4
 STORE_VERSION = 1
 SYNC_BACKOFF_SECONDS = 5
 MAX_SYNC_BACKOFF_SECONDS = 3600
+CACHE_STALE_SECONDS = 24 * 60 * 60
 
 
 def now_iso() -> str:
@@ -68,6 +69,8 @@ class OfflineStore:
             for key in base:
                 value = account.get(key)
                 if isinstance(value, list):
+                    # A partially written or hand-edited cache must not make
+                    # a screen crash when it expects records with .get().
                     base[key] = [row for row in value if isinstance(row, dict)]
             clean["accounts"][user_id] = base
         return clean
@@ -202,6 +205,29 @@ class OfflineStore:
                 self._touch()
             return changed
 
+    def edit_workout(self, local_id: str, updates: dict[str, Any],
+                     user_id: str | None = None) -> dict[str, Any] | None:
+        """Edit a workout that has not reached the server yet.
+
+        The original request ID is retained, so an edit replaces the queued
+        payload instead of creating a second server workout.
+        """
+        with self._lock:
+            account = self._account(user_id)
+            record = self._find("workouts", local_id, account)
+            if not record or record.get("sync_status") == "synced":
+                return None
+            record.update(deepcopy(updates))
+            record["sync_status"], record["sync_error"] = "pending", None
+            operation = next((x for x in account["queue"] if x.get("local_id") == local_id), None)
+            if operation:
+                operation["payload"] = {k: v for k, v in record.items()
+                                        if k not in {"id", "local_id", "server_id", "client_request_id", "logged_at",
+                                                     "sync_status", "sync_error", "xp_earned"}}
+                operation["next_attempt_at"] = 0.0
+            self._touch()
+            return deepcopy(record)
+
     def edit_meal(self, local_id: str, grams: float, period: str | None = None,
                   user_id: str | None = None) -> dict[str, Any] | None:
         """Scale a pending local meal while keeping its original nutrition snapshot."""
@@ -273,7 +299,17 @@ class OfflineStore:
     def cache_routines(self, routines: list[dict[str, Any]], user_id: str | None = None) -> None:
         with self._lock:
             account = self._account(user_id)
-            account["routines"] = [{**deepcopy(r), "cached_at": now_iso()} for r in routines if isinstance(r, dict)]
+            old = {str(r.get("id")): r for r in account["routines"] if r.get("id")}
+            merged = []
+            for routine in routines:
+                if not isinstance(routine, dict):
+                    continue
+                previous = old.get(str(routine.get("id")))
+                if previous and not self._server_version_is_newer(routine.get("updated_at"), previous.get("updated_at")):
+                    merged.append(deepcopy(previous))
+                else:
+                    merged.append({**deepcopy(routine), "cached_at": now_iso()})
+            account["routines"] = merged
             self._touch()
 
     def cached_routines(self, user_id: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
@@ -282,9 +318,48 @@ class OfflineStore:
             stamp = max((r.get("cached_at") for r in rows if r.get("cached_at")), default=None)
             return rows, stamp
 
+    @staticmethod
+    def _server_version_is_newer(incoming: Any, current: Any) -> bool:
+        if not incoming or not current:
+            return True
+        try:
+            left = datetime.fromisoformat(str(incoming).replace("Z", "+00:00"))
+            right = datetime.fromisoformat(str(current).replace("Z", "+00:00"))
+            if left.tzinfo is None:
+                left = left.replace(tzinfo=timezone.utc)
+            if right.tzinfo is None:
+                right = right.replace(tzinfo=timezone.utc)
+            return left >= right
+        except ValueError:
+            return True
+
+    @staticmethod
+    def cache_is_stale(cached_at: str | None, now: float | None = None) -> bool:
+        if not cached_at:
+            return True
+        try:
+            stamp = datetime.fromisoformat(cached_at.replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            current = datetime.now(timezone.utc).timestamp() if now is None else now
+            return current - stamp.timestamp() > CACHE_STALE_SECONDS
+        except (AttributeError, TypeError, ValueError):
+            return True
+
     def cache_plan(self, response: dict[str, Any], user_id: str | None = None) -> None:
         with self._lock:
-            self._account(user_id)["plans"] = [{"response": deepcopy(response), "cached_at": now_iso()}]
+            account = self._account(user_id)
+            previous = account["plans"][0] if account["plans"] and isinstance(account["plans"][0], dict) else {}
+            overrides = dict(previous.get("local_overrides") or {})
+            fresh = deepcopy(response)
+            for day in (fresh.get("plan") or {}).get("days", []):
+                if day.get("day") not in overrides:
+                    continue
+                if day.get("status") == overrides[day["day"]]:
+                    overrides.pop(day["day"], None)
+                else:
+                    day["status"] = overrides[day["day"]]
+            account["plans"] = [{"response": fresh, "cached_at": now_iso(), "local_overrides": overrides}]
             self._touch()
 
     def cached_plan(self, user_id: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
@@ -305,6 +380,7 @@ class OfflineStore:
             for item in plan.get("days", []):
                 if item.get("day") == day:
                     item["status"] = status
+                    account["plans"][0].setdefault("local_overrides", {})[day] = status
                     changed = True
                     break
             if changed:

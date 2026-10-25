@@ -52,11 +52,6 @@ def show_result(app, res: dict) -> None:
 def log_workout(app, payload: dict, on_done=None) -> None:
     """Save locally first, then let the durable sync queue try the server."""
     def work():
-        """ 
-        The real screen is only reachable after authentication.  Keeping the
-        old direct path for lightweight view fakes (which intentionally omit
-        a session) preserves the existing online-screen tests and behavior.
-        """
         if not app.api.user_id:
             try:
                 res = app.api.call("log-workout", "POST", {**payload, "workout_source": "manual"})
@@ -77,7 +72,7 @@ def log_workout(app, payload: dict, on_done=None) -> None:
                 on_done(False)
             return
 
-        result = app.sync_pending()
+        app.sync_pending()
         current = next((w for w in app.store.list_workouts() if w.get("local_id") == local["local_id"]), local)
         if current.get("sync_status") != "synced":
             message = "Workout saved on this device. It will sync when the connection returns."

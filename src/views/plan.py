@@ -105,8 +105,9 @@ def training(app) -> ft.Control:
         rows: list[ft.Control] = []
         if offline:
             stamp = f" Last updated {ui.when(cached_at)}." if cached_at else ""
+            stale = " This cache may be outdated; reconnect to refresh." if app.store.cache_is_stale(cached_at) else ""
             rows.append(ui.card(ft.Row([ft.Icon(ft.Icons.WIFI_OFF, color=ui.C.gold),
-                                        ui.body(f"Offline mode · using your cached plan.{stamp}", size=12)]),
+                                        ui.body(f"Offline mode · using your cached plan.{stamp}{stale}", size=12)]),
                                 accent=ui.fade(ui.C.gold, 0x88)))
         rows.append(ui.body(f"{plan['start_date']} to {plan['end_date']}. "
                             + (plan.get("notes") or ""), size=12))

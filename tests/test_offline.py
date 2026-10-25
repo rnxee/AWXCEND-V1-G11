@@ -92,6 +92,29 @@ def test_lost_response_reuses_the_same_request_id_on_retry(tmp_path: Path):
     assert store.queue_size() == 0
 
 
+def test_pending_workout_edit_replaces_the_existing_upload(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    saved = store.add_workout(workout())
+    edited = store.edit_workout(saved["local_id"], {"sets": 4, "reps": 6, "weight_kg": 45.0})
+    assert edited["sets"] == 4 and edited["reps"] == 6
+    api = FakeApi()
+    store.sync(api, force=True)
+    assert len(api.calls) == 1
+    assert api.calls[0][1]["sets"] == 4 and api.calls[0][1]["reps"] == 6
+
+
+def test_retry_backoff_is_respected_unless_manually_forced(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    store.add_workout(workout())
+    store.sync(FakeApi(error=RuntimeError("offline")), force=True, now=100)
+    api = FakeApi()
+    assert store.sync(api, now=104) == {"synced": 0, "failed": 0, "pending": 1}
+    assert api.calls == []
+    assert store.sync(api, now=105) == {"synced": 1, "failed": 0, "pending": 0}
+
+
 def test_meal_keeps_a_nutrition_snapshot_and_never_crosses_accounts(tmp_path: Path):
     store = OfflineStore(file_path=tmp_path / "offline.json")
     store.set_account(USER)
@@ -120,6 +143,26 @@ def test_cached_routines_and_plans_survive_restart(tmp_path: Path):
     plan, plan_stamp = reopened.cached_plan()
     assert routines[0]["name"] == "Leg day" and routine_stamp
     assert plan["plan"]["id"] == "plan-1" and plan_stamp
+
+
+def test_older_routine_response_does_not_replace_newer_cache(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    store.cache_routines([{"id": "routine-1", "name": "New name", "updated_at": "2026-10-25T12:00:00+00:00"}])
+    store.cache_routines([{"id": "routine-1", "name": "Old name", "updated_at": "2026-10-25T11:00:00+00:00"}])
+    routines, _ = store.cached_routines()
+    assert routines[0]["name"] == "New name"
+
+
+def test_local_plan_progress_is_not_overwritten_by_an_older_response(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    plan = {"plan": {"id": "plan-1", "days": [{"day": "2026-10-25", "status": "planned"}]}}
+    store.cache_plan(plan)
+    assert store.set_plan_day("2026-10-25", "done")
+    store.cache_plan(plan)
+    cached, _ = store.cached_plan()
+    assert cached["plan"]["days"][0]["status"] == "done"
 
 
 def test_cached_food_can_be_reused_for_an_offline_meal(tmp_path: Path):

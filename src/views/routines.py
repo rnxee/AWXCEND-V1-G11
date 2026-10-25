@@ -164,8 +164,9 @@ def view(app) -> ft.Control:
         notice = []
         if offline:
             stamp = f" Last updated {ui.when(cached_at)}." if cached_at else ""
+            stale = " This cache may be outdated; reconnect to refresh." if app.store.cache_is_stale(cached_at) else ""
             notice = [ui.card(ft.Row([ft.Icon(ft.Icons.WIFI_OFF, color=ui.C.gold),
-                                       ui.body(f"Offline mode · showing your saved routines.{stamp}", size=12)]),
+                                       ui.body(f"Offline mode · showing your saved routines.{stamp}{stale}", size=12)]),
                               accent=ui.fade(ui.C.gold, 0x88))]
         box.controls = notice + [card(r) for r in items] or [
             ui.empty("No saved routines on this device. Connect once to load or create one.", ft.Icons.LIST_ALT)]
