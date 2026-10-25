@@ -36,18 +36,25 @@ def training(app) -> ft.Control:
             try:
                 res = app.api.call("training-plan", "POST" if payload else "GET", payload)
             except ApiError as ex:
-                box.controls = [ui.error_box(str(ex), lambda: app.run(load))]
-                app.page.update()
+                cached, stamp = app.store.cached_plan()
+                if cached and cached.get("plan"):
+                    show(cached, offline=True, cached_at=stamp)
+                else:
+                    box.controls = [ui.empty("No training plan is cached yet. Connect to the internet once to load it.",
+                                             ft.Icons.WIFI_OFF), ui.error_box(str(ex), lambda: app.run(load))]
+                    app.page.update()
                 return
+            if res.get("plan"):
+                app.store.cache_plan(res)
             show(res)  # GET, submit_survey and next_month all answer with the whole plan state
         app.run(work)
 
     def load():
         call()
 
-    def show(res):
+    def show(res, *, offline=False, cached_at=None):
         plan = res.get("plan")
-        box.controls = days_view(res, plan) if plan else [survey(res)]
+        box.controls = days_view(res, plan, offline=offline, cached_at=cached_at) if plan else [survey(res)]
         app.page.update()
 
     def survey(res):
@@ -75,7 +82,7 @@ def training(app) -> ft.Control:
             error, ui.button("Make my plan", go, icon=ft.Icons.AUTO_AWESOME, width=float("inf")),
         ], spacing=10), padding=16)
 
-    def days_view(res, plan):
+    def days_view(res, plan, *, offline=False, cached_at=None):
         today = res.get("today") or date.today().isoformat()
         coming = [d for d in plan.get("days", []) if d["day"] >= today][:7]
 
@@ -88,12 +95,21 @@ def training(app) -> ft.Control:
                     app.api.call("training-plan", "POST", {"action": "set_day", "plan_id": plan["id"], "day": d["day"],
                                                            "status": status})
                 except ApiError as ex:
-                    app.toast(str(ex), error=True)
+                    if app.store.set_plan_day(d["day"], status):
+                        app.toast("Plan progress saved on this device; it will refresh from the server when online.")
+                    else:
+                        app.toast(str(ex), error=True)
                 load()
             app.run(work)
 
-        rows: list[ft.Control] = [ui.body(f"{plan['start_date']} to {plan['end_date']}. "
-                                          + (plan.get("notes") or ""), size=12)]
+        rows: list[ft.Control] = []
+        if offline:
+            stamp = f" Last updated {ui.when(cached_at)}." if cached_at else ""
+            rows.append(ui.card(ft.Row([ft.Icon(ft.Icons.WIFI_OFF, color=ui.C.gold),
+                                        ui.body(f"Offline mode · using your cached plan.{stamp}", size=12)]),
+                                accent=ui.fade(ui.C.gold, 0x88)))
+        rows.append(ui.body(f"{plan['start_date']} to {plan['end_date']}. "
+                            + (plan.get("notes") or ""), size=12))
         for d in coming:
             rest = not d.get("workout")
             status = d.get("status", "planned")
