@@ -81,6 +81,17 @@ def test_sync_keeps_failed_records_and_retries_without_duplicates(tmp_path: Path
     assert local["client_request_id"] == api.calls[0][1]["client_request_id"]
 
 
+def test_lost_response_reuses_the_same_request_id_on_retry(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    store.add_workout(workout())
+    api = LostResponseApi()
+    assert store.sync(api, force=True)["failed"] == 1
+    assert store.sync(api, force=True)["synced"] == 1
+    assert api.calls[0][1]["client_request_id"] == api.calls[1][1]["client_request_id"]
+    assert store.queue_size() == 0
+
+
 def test_meal_keeps_a_nutrition_snapshot_and_never_crosses_accounts(tmp_path: Path):
     store = OfflineStore(file_path=tmp_path / "offline.json")
     store.set_account(USER)
@@ -132,4 +143,12 @@ def test_malformed_storage_starts_empty(tmp_path: Path):
     store = OfflineStore(file_path=path)
     store.set_account(USER)
     assert store.list_workouts() == [] and store.list_meals() == []
+
+
+def test_malformed_record_lists_are_ignored(tmp_path: Path):
+    path = tmp_path / "offline.json"
+    path.write_text('{"accounts":{"user-1":{"workouts":["bad", null],"queue":[3]}}}', encoding="utf-8")
+    store = OfflineStore(file_path=path)
+    store.set_account(USER)
+    assert store.list_workouts() == [] and store.queue_size() == 0
 

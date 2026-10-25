@@ -68,7 +68,7 @@ class OfflineStore:
             for key in base:
                 value = account.get(key)
                 if isinstance(value, list):
-                    base[key] = value
+                    base[key] = [row for row in value if isinstance(row, dict)]
             clean["accounts"][user_id] = base
         return clean
 
