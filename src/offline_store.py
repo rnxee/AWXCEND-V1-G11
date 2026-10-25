@@ -190,6 +190,45 @@ class OfflineStore:
                 self._touch()
             return changed
 
+    def delete_meal(self, local_id: str, user_id: str | None = None) -> bool:
+        """Delete an unsynchronized local meal and its pending upload."""
+        with self._lock:
+            account = self._account(user_id)
+            before = len(account["meals"])
+            account["meals"] = [x for x in account["meals"] if x.get("local_id") != local_id]
+            account["queue"] = [x for x in account["queue"] if x.get("local_id") != local_id]
+            changed = len(account["meals"]) != before
+            if changed:
+                self._touch()
+            return changed
+
+    def edit_meal(self, local_id: str, grams: float, period: str | None = None,
+                  user_id: str | None = None) -> dict[str, Any] | None:
+        """Scale a pending local meal while keeping its original nutrition snapshot."""
+        with self._lock:
+            account = self._account(user_id)
+            record = self._find("meals", local_id, account)
+            if not record or record.get("sync_status") == "synced":
+                return None
+            old = float(record.get("weight_g") or 0)
+            if old <= 0 or grams <= 0:
+                return None
+            ratio = grams / old
+            record["weight_g"] = grams
+            for key in ("calories", "protein", "carbs", "fat", "fiber", "sugar"):
+                record[key] = round(float(record.get(key) or 0) * ratio, 2)
+            if period:
+                record["meal_period"] = period
+            record["sync_status"], record["sync_error"] = "pending", None
+            operation = next((x for x in account["queue"] if x.get("local_id") == local_id), None)
+            if operation:
+                operation["payload"] = {k: v for k, v in record.items()
+                                        if k not in {"id", "local_id", "server_id", "client_request_id", "logged_at",
+                                                     "sync_status", "sync_error", "nutrition_snapshot"}}
+                operation["next_attempt_at"] = 0.0
+            self._touch()
+            return deepcopy(record)
+
     def _find(self, collection: str, local_id: str, account: dict[str, Any]) -> dict[str, Any] | None:
         return next((row for row in account[collection] if row.get("local_id") == local_id), None)
 
