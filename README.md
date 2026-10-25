@@ -34,7 +34,10 @@ workouts, meals, cached foods, routines and the current training plan in Flet
 SharedPreferences. Workout and meal saves are written locally before a network
 request, so airplane mode does not lose them. The Train and Food screens show
 pending or failed synchronization states, and the Home screen retries queued
-uploads at startup and through its Retry action.
+uploads at startup with backoff and through its manual Retry action. Editing a
+pending local workout or meal replaces the queued payload; edits to an already
+synchronized server record still require a connection so server rewards and
+ownership rules remain authoritative.
 
 Previously loaded routines and plans remain available offline and show their
 last-updated time. Food search still needs the internet for a food that has not

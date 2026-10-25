@@ -25,6 +25,14 @@ def _is_today(iso: str) -> bool:
         return False
 
 
+def sync_label(record: dict) -> str:
+    return {
+        "pending": "saved locally · pending sync",
+        "failed": "saved locally · sync failed",
+        "synced": "synchronized",
+    }.get(record.get("sync_status"), "")
+
+
 def view(app) -> ft.Control:
     totals = ft.ResponsiveRow(spacing=10, run_spacing=10)
     logs_box = ft.Column([ui.loading()], spacing=10)
@@ -44,7 +52,9 @@ def view(app) -> ft.Control:
         cards = [
             ui.card(ft.Row([
                 ft.Column([ft.Text(l.get("food_name", ""), color=ui.C.text, font_family="LatoBold"),
-                           ui.body(f"{l.get('meal_period', '')} · {float(l.get('weight_g') or 0):g} g", size=12)],
+                           ui.body(" · ".join(x for x in
+                                             (f"{l.get('meal_period', '')} · {float(l.get('weight_g') or 0):g} g",
+                                              sync_label(l)) if x), size=12)],
                           spacing=2, expand=True),
                 ft.Text(f"{round(float(l.get('calories') or 0))} kcal", color=ui.C.gold),
                 ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit meal",

@@ -31,6 +31,14 @@ def workout_line(w: dict) -> str:
     return " · ".join(parts)
 
 
+def sync_label(record: dict) -> str:
+    return {
+        "pending": "saved locally · pending sync",
+        "failed": "saved locally · sync failed",
+        "synced": "synchronized",
+    }.get(record.get("sync_status"), "")
+
+
 def deletable(w: dict, now: datetime | None = None) -> bool:
     """What delete-workout accepts: a hand-logged workout from the last 24 hours (the server also
     refuses mission/dungeon sets and anything from before a path change, and says why)."""
@@ -85,6 +93,13 @@ def edit_workout(app, w: dict, after) -> None:
         app.close_dialog()
 
         def work():
+            if w.get("sync_status") != "synced" and w.get("local_id"):
+                updated = app.store.edit_workout(
+                    w["local_id"], {k: v for k, v in body.items() if k != "workout_log_id"})
+                if updated:
+                    app.toast("Workout updated on this device; it will sync when online.")
+                    after()
+                return
             try:
                 res = app.api.call("edit-workout", "POST", body)
                 app.load_me()
@@ -159,9 +174,7 @@ def view(app) -> ft.Control:
                         color=ui.C.dim, size=18),
                 ft.Text(workout_line(w), expand=True, color=ui.C.text),
                 ft.Column([ft.Text(f"+{w.get('xp_earned') or 0} XP", color=ui.C.primary_bright, font_family="LatoBold"),
-                           ui.body((ui.when(w.get("logged_at", "")) +
-                                    (" · pending sync" if w.get("sync_status") == "pending" else
-                                     " · sync failed" if w.get("sync_status") == "failed" else "")), size=11)],
+                           ui.body(" · ".join(x for x in (ui.when(w.get("logged_at", "")), sync_label(w)) if x), size=11)],
                           horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0),
                 *([ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit workout",
                                  on_click=lambda e, w=w: edit_workout(app, w, lambda: app.go("home"))),
@@ -203,7 +216,7 @@ def view(app) -> ft.Control:
     if pending:
         def retry_sync(e):
             def work():
-                result = app.sync_pending()
+                result = app.sync_pending(force=True)
                 if result["failed"]:
                     app.toast("Some offline records are still waiting for a connection.", error=True)
                 else:

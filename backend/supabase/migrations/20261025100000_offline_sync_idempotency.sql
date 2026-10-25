@@ -117,7 +117,7 @@ ALTER FUNCTION public.offline_log_workout(uuid, text, text, integer, integer, nu
   OWNER TO postgres;
 ALTER FUNCTION public.offline_log_meal(uuid, text, text, text, numeric, numeric, numeric, numeric, numeric, numeric, numeric, text, uuid, text, jsonb, integer, text)
   OWNER TO postgres;
-REVOKE EXECUTE ON FUNCTION public.offline_log_workout(uuid, text, text, integer, integer, numeric, text, numeric, integer, numeric) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.offline_log_meal(uuid, text, text, text, numeric, numeric, numeric, numeric, numeric, numeric, numeric, text, uuid, text, jsonb, integer, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.offline_log_workout(uuid, text, text, integer, integer, numeric, text, numeric, integer, numeric) TO service_role;
 GRANT EXECUTE ON FUNCTION public.offline_log_meal(uuid, text, text, text, numeric, numeric, numeric, numeric, numeric, numeric, numeric, text, uuid, text, jsonb, integer, text) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.offline_log_workout(uuid, text, text, integer, integer, numeric, text, numeric, integer, numeric) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.offline_log_meal(uuid, text, text, text, numeric, numeric, numeric, numeric, numeric, numeric, numeric, text, uuid, text, jsonb, integer, text) FROM PUBLIC, anon, authenticated;

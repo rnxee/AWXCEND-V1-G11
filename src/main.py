@@ -78,8 +78,8 @@ class App:
         return {"profile": {"username": "Offline"}, "workouts": self.store.list_workouts(),
                 "levelInfo": {}, "restrictions": [], "pending_sync": self.store.queue_size()}
 
-    def sync_pending(self) -> dict[str, int]:
-        result = self.store.sync(self.api, force=True)
+    def sync_pending(self, *, force: bool = False) -> dict[str, int]:
+        result = self.store.sync(self.api, force=force)
         if result["synced"]:
             try:
                 self.load_me()
