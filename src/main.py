@@ -6,6 +6,7 @@ import flet as ft
 import config
 import ui
 from api import Api, ApiError
+from offline_store import OfflineStore
 from views import auth, food, home, legal, profile, social, train
 
 TABS = [
@@ -24,6 +25,7 @@ class App:
         self.page = page
         self.prefs = prefs
         self.api = Api(config.SUPABASE_URL, config.SUPABASE_KEY, on_session=self._on_session)
+        self.store = OfflineStore(persist=self._persist_offline)
         self.me: dict | None = None      # the /profile payload
         self.tab = "home"
         self.stack: list[ft.Control] = []  # sub-screens opened over the current tab
@@ -63,6 +65,30 @@ class App:
         self.page.show_dialog(ft.SnackBar(ft.Text(message, color=ui.C.text),
                                           bgcolor=ui.fade(ui.C.danger, 0xdd) if error else ui.C.panel_alt))
 
+    def _persist_offline(self, raw: str) -> None:
+        # SharedPreferences is Flet's portable application-data store on both
+        # targets.  Writes are scheduled on the page event loop, while the
+        # store itself remains synchronous and safe for worker threads.
+        self.page.run_task(self.prefs.set, "offline.store.v1", raw)
+
+    def initialize_offline(self, raw: str | None) -> None:
+        self.store.restore(raw or "{}")
+
+    def offline_me(self) -> dict:
+        return {"profile": {"username": "Offline"}, "workouts": self.store.list_workouts(),
+                "levelInfo": {}, "restrictions": [], "pending_sync": self.store.queue_size()}
+
+    def sync_pending(self) -> dict[str, int]:
+        result = self.store.sync(self.api, force=True)
+        if result["synced"]:
+            try:
+                self.load_me()
+            except ApiError:
+                # The local records are already marked synced.  A later view
+                # refresh can fetch the authoritative profile when available.
+                pass
+        return result
+
     def close_dialog(self) -> None:
         """Close the open dialog. A toast is a dialog too: page.pop_dialog() alone would close a toast
         showing over a form and leave the form open, so a second tap would save twice."""
@@ -72,12 +98,15 @@ class App:
     # ---- session ---------------------------------------------------------------
     def _on_session(self, session: dict | None) -> None:
         self.page.run_task(self.prefs.set, "session", json.dumps(session) if session else "")
+        self.store.set_account(session["user"]["id"] if session else None)
         if session is None and self.me is not None:  # expired or signed out
             self.me = None
             self.show_auth()
 
     def load_me(self) -> dict:
         self.me = self.api.call("profile")
+        self.me["workouts"] = self.store.merge_workouts(self.me.get("workouts", []))
+        self.me["pending_sync"] = self.store.queue_size()
         return self.me
 
     def sign_out(self) -> None:
@@ -170,11 +199,12 @@ async def main(page: ft.Page):
         page.add(ui.screen("Setup needed", ui.error_box("config.py has no SUPABASE_KEY yet.")))
         return
 
+    app.initialize_offline(await prefs.get("offline.store.v1"))
     saved = await prefs.get("session")
     if not saved:
         app.show_auth()
         return
-    app.api.session = json.loads(saved)
+    app.api.set_session(json.loads(saved))
     page.add(ui.loading("Signing you in..."))
 
     def restore():
@@ -183,10 +213,12 @@ async def main(page: ft.Page):
         except ApiError as ex:
             if ex.status:  # the server turned this saved login down: forget it
                 app.api.set_session(None)
-            else:  # offline: keep the saved login for the next launch
-                app.api.session = None
-            app.show_auth()
-            app.toast(str(ex), error=True)  # why the login screen, e.g. no connection or session expired
+                app.show_auth()
+                app.toast(str(ex), error=True)
+            else:  # offline: keep the saved login and use the durable local view
+                app.me = app.offline_me()
+                app.show_main()
+                app.toast("Offline mode: local workouts and meals are still available.", error=True)
         else:
             app.show_main()
 

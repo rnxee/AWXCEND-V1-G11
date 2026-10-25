@@ -45,6 +45,11 @@ def confirm_delete_workout(app, w: dict, after) -> None:
         app.close_dialog()
 
         def work():
+            if w.get("sync_status") != "synced" and w.get("local_id"):
+                if app.store.delete_workout(w["local_id"]):
+                    app.toast("Local workout deleted.")
+                    after()
+                return
             try:
                 res = app.api.call("delete-workout", "POST", {"workout_log_id": w["id"]})
                 app.load_me()
@@ -154,7 +159,9 @@ def view(app) -> ft.Control:
                         color=ui.C.dim, size=18),
                 ft.Text(workout_line(w), expand=True, color=ui.C.text),
                 ft.Column([ft.Text(f"+{w.get('xp_earned') or 0} XP", color=ui.C.primary_bright, font_family="LatoBold"),
-                           ui.body(ui.when(w.get("logged_at", "")), size=11)],
+                           ui.body((ui.when(w.get("logged_at", "")) +
+                                    (" · pending sync" if w.get("sync_status") == "pending" else
+                                     " · sync failed" if w.get("sync_status") == "failed" else "")), size=11)],
                           horizontal_alignment=ft.CrossAxisAlignment.END, spacing=0),
                 *([ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit workout",
                                  on_click=lambda e, w=w: edit_workout(app, w, lambda: app.go("home"))),
