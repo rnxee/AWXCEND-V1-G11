@@ -97,6 +97,21 @@ def test_cached_routines_and_plans_survive_restart(tmp_path: Path):
     assert plan["plan"]["id"] == "plan-1" and plan_stamp
 
 
+def test_cached_food_can_be_reused_for_an_offline_meal(tmp_path: Path):
+    store = OfflineStore(file_path=tmp_path / "offline.json")
+    store.set_account(USER)
+    item = {"food": {"food_id": "food-1", "name": "Rice",
+                      "nutrition": {"calories": 130, "protein": 2.7, "carbs": 28, "fat": 0.3}},
+            "servings": [{"label": "bowl", "grams": 200}]}
+    store.cache_foods([item])
+    cached = store.cached_foods("rice")
+    logged = store.add_meal({"logged_method": "manual_scale", "food_name": cached[0]["food"]["name"],
+                             "meal_period": "Lunch", "weight_g": 200, "calories": 260,
+                             "protein": 5.4, "carbs": 56, "fat": 0.6})
+    assert cached[0]["food"]["nutrition"]["calories"] == 130
+    assert logged["nutrition_snapshot"]["nutrition"]["calories"] == 260
+
+
 def test_malformed_storage_starts_empty(tmp_path: Path):
     path = tmp_path / "offline.json"
     path.write_text("not-json", encoding="utf-8")

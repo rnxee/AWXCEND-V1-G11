@@ -31,13 +31,7 @@ def view(app) -> ft.Control:
     results = ft.Column(spacing=8)
     search = ui.field("Search foods (e.g. kanin)", prefix_icon=ft.Icons.SEARCH, expand=True)  # one line on phones
 
-    def load_logs():
-        try:
-            logs = app.api.call("get-meal-logs").get("logs", [])
-        except ApiError as ex:
-            logs_box.controls = [ui.error_box(str(ex), lambda: app.run(load_logs))]
-            app.page.update()
-            return
+    def render_logs(logs, *, offline=False):
         today = [l for l in logs if _is_today(l.get("logged_at", ""))]
         sums = {k: sum(float(l.get(k) or 0) for l in today) for k in ("calories", "protein", "carbs", "fat")}
         tile = {"col": {"xs": 6, "sm": 3}}  # 2 x 2 on phones: four numbers side by side broke mid-number
@@ -47,7 +41,7 @@ def view(app) -> ft.Control:
             ui.stat("Carbs", f"{sums['carbs']:.0f} g", ui.C.primary_bright, **tile),
             ui.stat("Fat", f"{sums['fat']:.0f} g", ui.C.accent, **tile),
         ]
-        logs_box.controls = [
+        cards = [
             ui.card(ft.Row([
                 ft.Column([ft.Text(l.get("food_name", ""), color=ui.C.text, font_family="LatoBold"),
                            ui.body(f"{l.get('meal_period', '')} · {float(l.get('weight_g') or 0):g} g", size=12)],
@@ -60,7 +54,33 @@ def view(app) -> ft.Control:
             ]), padding=12)
             for l in logs[:15]
         ] or [ui.empty("No meals logged yet.", ft.Icons.RESTAURANT)]
+        if offline:
+            logs_box.controls = [ui.card(ft.Row([ft.Icon(ft.Icons.WIFI_OFF, color=ui.C.gold),
+                                                  ui.body("Offline mode · showing meals saved on this device.", size=12)]),
+                                         accent=ui.fade(ui.C.gold, 0x88)), *cards]
+        else:
+            logs_box.controls = cards
         app.page.update()
+
+    def load_logs():
+        try:
+            logs = app.api.call("get-meal-logs").get("logs", [])
+        except ApiError as ex:
+            if app.api.user_id:
+                logs = app.store.list_meals()
+                if logs:
+                    render_logs(logs, offline=True)
+                else:
+                    logs_box.controls = [ui.empty("No meals are saved on this device yet. Connect to load your meal history.",
+                                                  ft.Icons.WIFI_OFF), ui.error_box(str(ex), lambda: app.run(load_logs))]
+                    app.page.update()
+            else:
+                logs_box.controls = [ui.error_box(str(ex), lambda: app.run(load_logs))]
+                app.page.update()
+            return
+        if app.api.user_id:
+            logs = app.store.merge_meals(logs)
+        render_logs(logs)
 
     def edit_dialog(meal):
         was = float(meal.get("weight_g") or 0) or 1.0
@@ -79,6 +99,13 @@ def view(app) -> ft.Control:
                 app.toast("Amount must be between 1 and 5000 g.", error=True)
                 return
             app.close_dialog()
+
+            if meal.get("sync_status") != "synced" and meal.get("local_id"):
+                updated = app.store.edit_meal(meal["local_id"], g, period.value)
+                if updated:
+                    app.toast("Meal updated on this device; it will sync when online.")
+                    load_logs()
+                return
 
             def work():
                 try:
@@ -100,6 +127,12 @@ def view(app) -> ft.Control:
     def confirm_delete(meal):
         def go(e):
             app.close_dialog()
+
+            if meal.get("sync_status") != "synced" and meal.get("local_id"):
+                if app.store.delete_meal(meal["local_id"]):
+                    app.toast("Local meal deleted.")
+                    load_logs()
+                return
 
             def work():
                 try:
@@ -127,9 +160,17 @@ def view(app) -> ft.Control:
         try:
             items = app.api.call("search-food", params={"query": q}).get("results", [])
         except ApiError as ex:
-            results.controls = [ui.error_box(str(ex))]
+            items = app.store.cached_foods(q) if app.api.user_id else []
+            if items:
+                results.controls = [ui.body("Offline · showing foods previously loaded on this device.", size=12),
+                                    *[result_row(it) for it in items]]
+            else:
+                results.controls = [ui.empty("Food search requires internet until a food has been loaded once.",
+                                             ft.Icons.WIFI_OFF), ui.error_box(str(ex))]
             app.page.update()
             return
+        if app.api.user_id:
+            app.store.cache_foods(items)
         results.controls = [result_row(it) for it in items] or [ui.empty(f"No foods found for “{q}”.", ft.Icons.SEARCH_OFF)]
         app.page.update()
 
@@ -178,6 +219,7 @@ def view(app) -> ft.Control:
                 return
             body = {"logged_method": "manual_scale", "food_name": f["name"][:200], "meal_period": period.value,
                     "weight_g": g, **portion(per100, g)}
+            body["nutrition_snapshot"] = {"food": f, "per_100g": per100, "serving_label": chosen["label"]}
             if f.get("food_id"):
                 body["food_id"] = f["food_id"]
             elif f.get("usda_fdc_id"):
@@ -198,13 +240,29 @@ def view(app) -> ft.Control:
         app.page.show_dialog(dlg)
 
     def save_work(body):
-        try:
-            res = app.api.call("log-meal", "POST", body)
-        except ApiError as ex:
-            app.toast(str(ex), error=True)
+        if not app.api.user_id:
+            try:
+                res = app.api.call("log-meal", "POST", body)
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                return
+            gold = res.get("gold_awarded")
+            app.toast(f"Logged {body['food_name']}" + (f" · +{gold} gold" if gold else ""))
+            load_logs()
             return
-        gold = res.get("gold_awarded")
-        app.toast(f"Logged {body['food_name']}" + (f" · +{gold} gold" if gold else ""))
+        try:
+            local = app.store.add_meal(body)
+        except Exception as ex:
+            app.toast(f"Could not save this meal locally: {ex}", error=True)
+            return
+        app.sync_pending()
+        current = next((m for m in app.store.list_meals() if m.get("local_id") == local["local_id"]), local)
+        if current.get("sync_status") != "synced":
+            app.toast("Meal saved on this device. It will sync when the connection returns.")
+            load_logs()
+            return
+        gold = current.get("gold_awarded")
+        app.toast(f"Logged {body['food_name']}" + (f" · +{gold} gold" if gold else "") + " · synced")
         load_logs()
 
     search.on_submit = do_search
