@@ -55,7 +55,7 @@ Desktop.ini
 *~
 # Allow VS Code workspace settings, but ignore personal workspace state
 .vscode/*
-!.vscode/settings.json
+#!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
@@ -67,3 +67,4 @@ storage/
 .ruff_cache/
 *.log
 *.local
+.vscode/settings.json

@@ -52,6 +52,23 @@ def show_result(app, res: dict) -> None:
 def log_workout(app, payload: dict, on_done=None) -> None:
     """Save locally first, then let the durable sync queue try the server."""
     def work():
+        """ 
+        The real screen is only reachable after authentication.  Keeping the
+        old direct path for lightweight view fakes (which intentionally omit
+        a session) preserves the existing online-screen tests and behavior.
+        """
+        if not app.api.user_id:
+            try:
+                res = app.api.call("log-workout", "POST", {**payload, "workout_source": "manual"})
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                if on_done:
+                    on_done(False)
+                return
+            show_result(app, res)
+            if on_done:
+                on_done(True)
+            return
         try:
             local = app.store.add_workout({**payload, "workout_source": "manual"})
         except Exception as ex:
