@@ -160,17 +160,31 @@ def run(app, routine: dict) -> ft.Control:
 def view(app) -> ft.Control:
     box = ft.Column([ui.loading()], spacing=10)
 
+    def render(items, *, offline=False, cached_at=None):
+        notice = []
+        if offline:
+            stamp = f" Last updated {ui.when(cached_at)}." if cached_at else ""
+            notice = [ui.card(ft.Row([ft.Icon(ft.Icons.WIFI_OFF, color=ui.C.gold),
+                                       ui.body(f"Offline mode · showing your saved routines.{stamp}", size=12)]),
+                              accent=ui.fade(ui.C.gold, 0x88))]
+        box.controls = notice + [card(r) for r in items] or [
+            ui.empty("No saved routines on this device. Connect once to load or create one.", ft.Icons.LIST_ALT)]
+        app.page.update()
+
     def load():
         try:
             items = app.api.call("get-routines").get("routines", [])
         except ApiError as ex:
-            box.controls = [ui.error_box(str(ex), lambda: app.run(load))]
-            app.page.update()
+            cached, stamp = app.store.cached_routines()
+            if cached:
+                render(cached, offline=True, cached_at=stamp)
+            else:
+                box.controls = [ui.empty("No routines are cached yet. Connect to the internet once to load them.",
+                                         ft.Icons.WIFI_OFF), ui.error_box(str(ex), lambda: app.run(load))]
+                app.page.update()
             return
-        box.controls = [card(r) for r in items] or [
-            ui.empty("No routines yet. Save the workouts you repeat so you can log them in a few taps.",
-                     ft.Icons.LIST_ALT)]
-        app.page.update()
+        app.store.cache_routines(items)
+        render(items)
 
     def card(r):
         exs = r.get("routine_exercises") or []
