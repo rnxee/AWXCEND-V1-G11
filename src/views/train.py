@@ -50,16 +50,30 @@ def show_result(app, res: dict) -> None:
 
 
 def log_workout(app, payload: dict, on_done=None) -> None:
-    """POST log-workout off the UI thread; show the result or the server's reason."""
+    """Save locally first, then let the durable sync queue try the server."""
     def work():
         try:
-            res = app.api.call("log-workout", "POST", {**payload, "workout_source": "manual"})
-        except ApiError as ex:
-            app.toast(str(ex), error=True)
+            local = app.store.add_workout({**payload, "workout_source": "manual"})
+        except Exception as ex:
+            app.toast(f"Could not save this workout locally: {ex}", error=True)
             if on_done:
                 on_done(False)
             return
-        show_result(app, res)
+
+        result = app.sync_pending()
+        current = next((w for w in app.store.list_workouts() if w.get("local_id") == local["local_id"]), local)
+        if current.get("sync_status") != "synced":
+            message = "Workout saved on this device. It will sync when the connection returns."
+            if current.get("sync_error"):
+                message += f" ({current['sync_error']})"
+            app.toast(message, error=False)
+            if on_done:
+                on_done(True)
+            return
+        try:
+            show_result(app, current)
+        except ApiError as ex:
+            app.toast(str(ex), error=True)
         if on_done:
             on_done(True)
     app.run(work)

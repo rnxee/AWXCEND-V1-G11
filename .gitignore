@@ -38,6 +38,7 @@ dist/
 *.pem
 *.key
 .DS_Store
+~.yaml
 
 # 5. Operating System Metadata
 .DS_Store
