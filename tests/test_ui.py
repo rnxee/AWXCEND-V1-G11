@@ -47,6 +47,37 @@ def test_closing_a_form_also_closes_the_toast_shown_over_it():
     assert open_dialogs == []
 
 
+def test_system_back_pops_a_subscreen_and_exits_only_at_main_root():
+    class Window:
+        def __init__(self):
+            self.closed = 0
+
+        def destroy(self):
+            self.closed += 1
+
+    class Page:
+        def __init__(self):
+            self.window = Window()
+
+        def update(self):
+            pass
+
+        def run_task(self, fn, *args):
+            fn(*args)
+
+    page = Page()
+    app = App.__new__(App)
+    app.page, app.in_main, app.cleanups = page, True, []
+    app.stack = [ft.Text("previous")]
+    app.body = ft.Container(content=ft.Text("current"))
+
+    app.on_back()
+    assert not app.stack and app.body.content.value == "previous" and page.window.closed == 0
+
+    app.on_back()
+    assert page.window.closed == 1
+
+
 def test_text_fields_accept_typing():
     # A deny-filter on every field once blocked all typing in the real app; hidden characters are
     # stripped by the server (cleanText) instead.

@@ -176,6 +176,36 @@ class App:
             self.body.content = self.stack.pop()
             self.page.update()
 
+    def _exit_window(self) -> None:
+        """Ask the host to close the app after the main screen is backed out of."""
+        window = getattr(self.page, "window", None)
+        close = getattr(window, "destroy", None) or getattr(window, "close", None)
+        if not close:
+            return
+        run_task = getattr(self.page, "run_task", None)
+        if run_task:
+            run_task(close)
+        else:  # small test doubles and older hosts may expose a synchronous close
+            close()
+
+    def on_back(self, e=None) -> None:
+        """Handle the platform back action without rebuilding the current tab.
+
+        Flet delivers Android back (and view/app-bar back) through ``on_view_pop``.
+        The app uses its own stack rather than ``page.views``, so a default route
+        pop would otherwise recreate the root screen and look like a Home action.
+        """
+        if self.stack:
+            self.back()
+        elif self.in_main:
+            self._exit_window()
+
+    def on_keyboard(self, e) -> None:
+        # Desktop browser-back/Escape is useful during development and mirrors
+        # Android's system back without changing the tab selected underneath.
+        if getattr(e, "key", "") in ("Escape", "BrowserBack"):
+            self.on_back(e)
+
 
 async def main(page: ft.Page):
     page.title = "AWXCEND"
@@ -195,6 +225,9 @@ async def main(page: ft.Page):
     app.picker = ft.FilePicker()
     page.services.append(app.picker)
     page.on_resize = app.on_resize
+    page.on_view_pop = app.on_back
+    page.on_keyboard_event = app.on_keyboard
+
 
     if not config.SUPABASE_KEY:
         page.add(ui.screen("Setup needed", ui.error_box("config.py has no SUPABASE_KEY yet.")))
