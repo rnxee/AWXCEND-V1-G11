@@ -221,6 +221,29 @@ def test_editing_and_deleting_your_own_workout_and_meal():
     assert done == [1] and app.toasts == ["Workout updated · 20 → 30 XP", "Workout updated · 20 → 30 XP", "Meal updated."]
 
 
+def test_outgoing_friend_requests_can_be_cancelled():
+    from fakes import walk
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        if req.url.path.endswith("get-friends"):
+            return httpx.Response(200, json={"outgoingRequests": [{
+                "friendship_id": "rel1", "user": {"id": "u2", "username": "Rin", "rank": "Bronze"}
+            }], "friends": [], "incomingRequests": []})
+        if req.url.path.endswith("remove-friend"):
+            sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    screen = social.friends(app)
+    next(c for c in walk(screen) if getattr(c, "content", None) == "Cancel").on_click(None)
+    button(app.dialogs[-1], "Cancel request").on_click(None)
+    assert sent == [{"friend_id": "u2"}]
+    assert app.toasts == ["Request to Rin cancelled."]
+
+
 def chat_with(messages: list[dict]):
     """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
     from views import social

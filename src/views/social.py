@@ -452,7 +452,10 @@ def friends(app) -> ft.Control:
         ]) for f in res.get("friends", [])] or [ui.empty("No friends yet. Search for people above.", ft.Icons.GROUP_ADD)]
         if res.get("outgoingRequests"):
             rows.append(ui.section("Sent requests"))
-            rows += [person(r["user"], [ui.body("Pending", size=12)]) for r in res["outgoingRequests"]]
+            rows += [person(r["user"], [
+                ui.body("Pending", size=12),
+                ui.button("Cancel", lambda e, r=r: confirm_cancel(r["user"]), kind="text"),
+            ]) for r in res["outgoingRequests"]]
         lists.controls = rows
         app.page.update()
 
@@ -464,6 +467,16 @@ def friends(app) -> ft.Control:
                                             content=ft.Text("You won't be able to message each other until you're friends again."),
                                             actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
                                                      ui.button("Remove", go, kind="danger")]))
+
+    def confirm_cancel(u):
+        def go(e):
+            app.close_dialog()
+            act("remove-friend", {"friend_id": u["id"]}, f"Request to {u['username']} cancelled.")
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text(f"Cancel request to {u['username']}?"),
+            content=ft.Text("They will no longer see this pending request."),
+            actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
+                     ui.button("Cancel request", go, kind="danger")]))
 
     def do_search_work(q):
         try:
