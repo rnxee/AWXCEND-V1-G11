@@ -221,6 +221,24 @@ def test_editing_and_deleting_your_own_workout_and_meal():
     assert done == [1] and app.toasts == ["Workout updated · 20 → 30 XP", "Workout updated · 20 → 30 XP", "Meal updated."]
 
 
+def test_problem_reports_include_an_attachment_list_and_allow_only_known_types():
+    from views import account
+
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    account.report_problem(app)
+    fields(app.dialogs[-1])["What happened? Steps to repeat it help"].value = "The screen is blank."
+    button(app.dialogs[-1], "Send").on_click(None)
+    assert sent == [{"category": "bug", "description": "The screen is blank.", "attachments": []}]
+    assert account.report_attachment_mime("screen.PNG") == "image/png"
+    assert account.report_attachment_mime("notes.exe") is None
+
+
 def chat_with(messages: list[dict]):
     """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
     from views import social
