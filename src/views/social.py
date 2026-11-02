@@ -87,6 +87,61 @@ def editable(m: dict, now: datetime | None = None) -> bool:
     return t is not None and (now or datetime.now(timezone.utc)) - t < EDIT_WINDOW
 
 
+def show_gallery(app, urls: list[str], selected: int = 0) -> None:
+    """Open one image at a time without changing the feed's scroll position."""
+    if not urls:
+        return
+    state = {"index": max(0, min(selected, len(urls) - 1))}
+    image = ft.Image(src=urls[state["index"]], fit=ft.BoxFit.CONTAIN, expand=True,
+                     gapless_playback=True)
+    counter = ui.body("", size=12)
+    previous = ft.IconButton(ft.Icons.CHEVRON_LEFT, tooltip="Previous photo")
+    following = ft.IconButton(ft.Icons.CHEVRON_RIGHT, tooltip="Next photo")
+
+    def render():
+        image.src = urls[state["index"]]
+        counter.value = f"{state['index'] + 1} / {len(urls)}"
+        previous.disabled = state["index"] == 0
+        following.disabled = state["index"] == len(urls) - 1
+        app.page.update()
+
+    def move(delta: int):
+        state["index"] = max(0, min(len(urls) - 1, state["index"] + delta))
+        render()
+
+    previous.on_click = lambda e: move(-1)
+    following.on_click = lambda e: move(1)
+    render()
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Photo gallery"),
+        content=ft.Column([ft.Container(image, height=min(560, max(260, (getattr(app.page, "height", None) or 800) * 0.65)),
+                                        expand=True),
+                           ft.Row([previous, counter, following], alignment=ft.MainAxisAlignment.CENTER)],
+                          tight=True, width=min(760, max(300, (getattr(app.page, "width", None) or 480) - 32))),
+        actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
+
+
+def image_gallery(app, urls: list[str]) -> ft.Control:
+    """Responsive, aspect-ratio-preserving thumbnails for a post."""
+    urls = [url for url in urls if isinstance(url, str) and url]
+    if not urls:
+        return ft.Container()
+    available = max(320, getattr(app.page, "width", None) or 480)
+    columns = 1 if len(urls) == 1 else min(3, len(urls))
+    width = max(120, min(300, (available - 32 - (columns - 1) * 8) / columns))
+    height = min(280, max(150, width * 0.72))
+    return ft.Row([
+        ft.GestureDetector(
+            content=ft.Container(
+                ft.Image(src=url, width=width, height=height, fit=ft.BoxFit.CONTAIN,
+                         gapless_playback=True),
+                width=width, height=height, bgcolor=ui.C.panel_alt, border_radius=10,
+            ),
+            on_tap=lambda e, i=i: show_gallery(app, urls, i),
+        ) for i, url in enumerate(urls)
+    ], wrap=True, spacing=8, run_spacing=8)
+
+
 def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str, mine=None, change=None) -> ft.Control:
     """Messages newest at the bottom, 'Load older' paging, polling for new ones, and a composer.
     fetch(before) -> (messages oldest-first, has_more); send(text); bubble(msg) -> control.
@@ -263,9 +318,9 @@ def feed(app) -> ft.Control:
         if p.get("title"):
             parts.append(ui.heading(p["title"], 16))
         parts.append(ft.Text(p.get("content", ""), color=ui.C.text, selectable=True))
-        if p.get("image_url"):
-            parts.append(ft.Image(src=p["image_url"], border_radius=10, fit=ft.BoxFit.COVER, height=260,
-                                  width=float("inf")))
+        images = p.get("images") or ([p["image_url"]] if p.get("image_url") else [])
+        if images:
+            parts.append(image_gallery(app, images))
         if p.get("tab") == "food" and p.get("calories") is not None:
             parts.append(ui.body(f"{p['calories']} kcal · P {p.get('protein')} g · C {p.get('carbs')} g · F {p.get('fat')} g",
                                  color=ui.C.food, size=13))

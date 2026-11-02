@@ -279,6 +279,17 @@ def test_new_post_appends_multiple_photo_picks_and_sends_all_images(monkeypatch)
     ]
 
 
+def test_community_gallery_wraps_photos_without_forcing_cover_crops():
+    from fakes import walk
+    from views import social
+
+    app = FakeApp(lambda req: httpx.Response(200, json={}), profile={"username": "ash"})
+    gallery = social.image_gallery(app, ["https://images/one.jpg", "https://images/two.jpg"])
+    images = [c for c in walk(gallery) if isinstance(c, ft.Image)]
+    assert len(images) == 2 and all(c.fit == ft.BoxFit.CONTAIN for c in images)
+    assert len(gallery.controls) == 2
+
+
 def chat_with(messages: list[dict]):
     """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
     from views import social
