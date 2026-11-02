@@ -1,6 +1,7 @@
 """Account & privacy: report a problem, download my data, the relative strength board,
 hiding the account (deactivate) and deleting it. Every action is checked by the server."""
 import asyncio
+import base64
 import json
 import os
 from datetime import date
@@ -13,6 +14,16 @@ from views import legal
 
 BUG_CATEGORIES = [("bug", "Something's broken"), ("feature_request", "Idea"), ("other", "Other")]
 FULL = float("inf")  # a card as wide as the screen, whatever its text
+REPORT_ATTACHMENT_EXTENSIONS = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                                "webp": "image/webp", "pdf": "application/pdf"}
+MAX_REPORT_ATTACHMENTS = 5
+MAX_REPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
+
+def report_attachment_mime(name: str) -> str | None:
+    """Return the upload type allowed by the report picker, based on its suffix."""
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return REPORT_ATTACHMENT_EXTENSIONS.get(suffix)
 
 
 def set_active(app, active: bool, after) -> None:
@@ -34,12 +45,56 @@ def report_problem(app) -> None:
     kind = {"v": "bug"}
     text = ui.field("What happened? Steps to repeat it help", multiline=True, min_lines=3, max_lines=6,
                     max_length=1000)
+    attachments: list[dict] = []
+    attachment_rows = ft.Column(spacing=4)
+
+    def render_attachments():
+        attachment_rows.controls = [ft.Row([
+            ft.Icon(ft.Icons.ATTACH_FILE_OUTLINED, color=ui.C.primary),
+            ui.body(f"{item['name']} · {len(item['bytes']) // 1024} KB", size=12, expand=True),
+            ft.IconButton(ft.Icons.CLOSE, tooltip="Remove attachment",
+                          on_click=lambda e, item=item: remove_attachment(item)),
+        ]) for item in attachments]
+        attachment_rows.update()
+
+    def remove_attachment(item):
+        if item in attachments:
+            attachments.remove(item)
+            render_attachments()
+
+    async def choose_attachments(e):
+        remaining = MAX_REPORT_ATTACHMENTS - len(attachments)
+        if remaining <= 0:
+            app.toast(f"You can attach up to {MAX_REPORT_ATTACHMENTS} files.", error=True)
+            return
+        files = await app.picker.pick_files(
+            dialog_title="Attach evidence",
+            file_type=ft.FilePickerFileType.ANY,
+            allowed_extensions=list(REPORT_ATTACHMENT_EXTENSIONS),
+            allow_multiple=True,
+            with_data=True,
+        )
+        for picked in (files or [])[:remaining]:
+            data = picked.bytes or b""
+            mime = report_attachment_mime(picked.name)
+            if not mime:
+                app.toast(f"{picked.name}: use JPG, PNG, WEBP, or PDF.", error=True)
+                continue
+            if not data or len(data) > MAX_REPORT_ATTACHMENT_BYTES:
+                app.toast(f"{picked.name}: files must be 5 MB or smaller.", error=True)
+                continue
+            attachments.append({"name": picked.name[:255], "mime_type": mime, "bytes": data})
+        render_attachments()
 
     def send(e):
         if not text.value.strip():
             app.toast("Describe the problem first.", error=True)
             return
-        body = {"category": kind["v"], "description": text.value.strip()}
+        body = {"category": kind["v"], "description": text.value.strip(), "attachments": [
+            {"name": item["name"], "mime_type": item["mime_type"],
+             "data_base64": base64.b64encode(item["bytes"]).decode("ascii")}
+            for item in attachments
+        ]}
         app.close_dialog()
 
         def work():
@@ -52,7 +107,11 @@ def report_problem(app) -> None:
 
     app.page.show_dialog(ft.AlertDialog(
         title=ft.Text("Report a problem"),
-        content=ft.Column([ui.chips(BUG_CATEGORIES, "bug", lambda k: kind.update(v=k)), text],
+        content=ft.Column([ui.chips(BUG_CATEGORIES, "bug", lambda k: kind.update(v=k)), text,
+                           ft.Row([ui.button("Add evidence", choose_attachments, icon=ft.Icons.ATTACH_FILE,
+                                             kind="ghost"),
+                                   ui.body("JPG, PNG, WEBP or PDF · up to 5 MB each", size=11)], wrap=True),
+                           attachment_rows],
                           tight=True, spacing=12, width=440),
         actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Send", send)]))
 
