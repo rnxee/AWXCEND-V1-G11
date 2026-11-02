@@ -42,6 +42,14 @@ def prepare_jpeg(data: bytes, name: str) -> bytes | None:
     return None
 
 
+def local_photo(data: bytes, **kwargs) -> ft.Image:
+    """Build a picker preview on both the pinned Flet release and newer Flet."""
+    try:
+        return ft.Image(src=data, **kwargs)
+    except TypeError:  # Flet 0.86 exposes local bytes as src_base64 instead
+        return ft.Image(src_base64=base64.b64encode(data).decode("ascii"), **kwargs)
+
+
 # ---- shared bits ----------------------------------------------------------------
 def open_profile(app, user_id: str) -> None:
     from views import profile
@@ -535,8 +543,7 @@ def new_post(app, tab: str, on_posted) -> None:
 
     def render_photos():
         photo_list.controls = [ft.Row([
-            ft.Image(src=item["bytes"], width=52, height=52,
-                     fit=ft.BoxFit.COVER, border_radius=6),
+            local_photo(item["bytes"], width=52, height=52, fit=ft.BoxFit.COVER, border_radius=6),
             ui.body(f"{item['name']} · {len(item['bytes']) // 1024} KB", size=12, expand=True),
             ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo",
                           on_click=lambda e, item=item: remove_photo(item)),
@@ -626,8 +633,9 @@ def edit_post(app, post: dict, on_saved) -> None:
     def render_images():
         all_items = [*state["items"], *state["new"]]
         image_list.controls = [ft.Row([
-            ft.Image(src=item.get("bytes") if item.get("bytes") else item.get("url"), width=52, height=52,
-                     fit=ft.BoxFit.COVER, border_radius=6),
+            local_photo(item["bytes"], width=52, height=52, fit=ft.BoxFit.COVER, border_radius=6)
+            if item.get("bytes") else ft.Image(src=item.get("url"), width=52, height=52,
+                                                fit=ft.BoxFit.COVER, border_radius=6),
             ui.body("New photo" if item in state["new"] else "Existing photo", size=12, expand=True),
             ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo", on_click=lambda e, item=item: remove_item(item)),
         ]) for item in all_items]
