@@ -50,8 +50,8 @@ Deno.serve(async (req) => {
   const content = cleanText(body.content)
   const title = cleanText(body.title)
   const imageBase64 = typeof body.image_base64 === 'string' ? body.image_base64.trim() : ''
-  const imageInputs = Array.isArray(body.images_base64)
-    ? body.images_base64.filter((value: unknown): value is string => typeof value === 'string').map(value => value.trim())
+  const imageInputs: string[] = Array.isArray(body.images_base64)
+    ? body.images_base64.filter((value: unknown): value is string => typeof value === 'string').map((value: string) => value.trim())
     : imageBase64 ? [imageBase64] : []
   const ingredients = cleanText(body.ingredients)
 
@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
   if (content.length > MAX_CONTENT_LENGTH) errors.push(`content must be ${MAX_CONTENT_LENGTH} characters or fewer`)
   if (title.length > MAX_TITLE_LENGTH) errors.push(`title must be ${MAX_TITLE_LENGTH} characters or fewer`)
   if (imageInputs.length > MAX_IMAGES) errors.push(`A post can contain at most ${MAX_IMAGES} images`)
-  if (imageInputs.some(image => image.length > MAX_IMAGE_BASE64_LENGTH)) errors.push('Image too large')
+  if (imageInputs.some((image: string) => image.length > MAX_IMAGE_BASE64_LENGTH)) errors.push('Image too large')
   if (ingredients.length > MAX_INGREDIENTS_LENGTH) errors.push(`ingredients must be ${MAX_INGREDIENTS_LENGTH} characters or fewer`)
 
   // Nutrition facts are only meaningful — and only required — on a food

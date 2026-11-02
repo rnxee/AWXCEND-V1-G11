@@ -45,12 +45,12 @@ Deno.serve(async (req) => {
   const content = cleanText(body.content)
   const title = cleanText(body.title)
   const ingredients = cleanText(body.ingredients)
-  const keepIds = Array.isArray(body.keep_image_ids)
-    ? body.keep_image_ids.filter((id: unknown): id is string => typeof id === 'string').map(id => id.trim())
+  const keepIds: string[] = Array.isArray(body.keep_image_ids)
+    ? body.keep_image_ids.filter((id: unknown): id is string => typeof id === 'string').map((id: string) => id.trim())
     : []
   const keepLegacy = body.keep_legacy_image === true
-  const newInputs = Array.isArray(body.new_images_base64)
-    ? body.new_images_base64.filter((image: unknown): image is string => typeof image === 'string').map(image => image.trim())
+  const newInputs: string[] = Array.isArray(body.new_images_base64)
+    ? body.new_images_base64.filter((image: unknown): image is string => typeof image === 'string').map((image: string) => image.trim())
     : []
 
   const errors: string[] = []
@@ -59,8 +59,8 @@ Deno.serve(async (req) => {
   if (content.length > MAX_CONTENT_LENGTH) errors.push(`content must be ${MAX_CONTENT_LENGTH} characters or fewer`)
   if (title.length > MAX_TITLE_LENGTH) errors.push(`title must be ${MAX_TITLE_LENGTH} characters or fewer`)
   if (ingredients.length > MAX_INGREDIENTS_LENGTH) errors.push(`ingredients must be ${MAX_INGREDIENTS_LENGTH} characters or fewer`)
-  if (keepIds.some(id => !isUuid(id))) errors.push('keep_image_ids contains an invalid id')
-  if (newInputs.length > MAX_IMAGES || newInputs.some(image => !image)) errors.push(`A post can contain at most ${MAX_IMAGES} images`)
+  if (keepIds.some((id: string) => !isUuid(id))) errors.push('keep_image_ids contains an invalid id')
+  if (newInputs.length > MAX_IMAGES || newInputs.some((image: string) => !image)) errors.push(`A post can contain at most ${MAX_IMAGES} images`)
   if (errors.length) return json({ success: false, errors }, 400)
 
   const admin = getAdminClient()
