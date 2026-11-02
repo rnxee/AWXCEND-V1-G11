@@ -50,14 +50,20 @@ Deno.serve(async (req) => {
   // Same answer for "not found" and "not yours": no probing other users' posts.
   if (!post || post.user_id !== user.id) return json({ success: false, error: 'Post not found.' }, 404)
 
+  const { data: gallery, error: galleryError } = await admin
+    .from('gymmunity_post_images')
+    .select('storage_path')
+    .eq('post_id', post.id)
+  if (galleryError) return json({ success: false, error: 'Could not delete the post.' }, 500)
+
   const { error: deleteError } = await admin.from('gymmunity_posts').delete().eq('id', post.id).eq('user_id', user.id)
   if (deleteError) return json({ success: false, error: 'Could not delete the post.' }, 500)
 
   // Best effort: the post is gone either way; a leftover file is only storage.
-  const path = postImagePath(post.image_url)
-  if (path && path.startsWith(`${user.id}/`)) {
-    await admin.storage.from('gymmunity-images').remove([path])
-  }
+  const paths = new Set((gallery ?? []).map(image => image.storage_path))
+  const legacyPath = postImagePath(post.image_url)
+  if (legacyPath && legacyPath.startsWith(`${user.id}/`)) paths.add(legacyPath)
+  if (paths.size) await admin.storage.from('gymmunity-images').remove([...paths])
 
   return json({ success: true, deleted: post.id })
 })

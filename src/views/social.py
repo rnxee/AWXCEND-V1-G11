@@ -12,6 +12,7 @@ REPORT_REASONS = [("harassment", "Harassment or bullying"), ("spam", "Spam"), ("
                   ("inappropriate_content", "Inappropriate content"), ("cheating", "Cheating / faking stats"),
                   ("other", "Other")]
 MAX_IMAGE = 1_900_000  # create-post takes JPEGs up to ~2 MB
+MAX_POST_IMAGES = 10
 MAX_CHAT_WORDS = 100  # chat-send and send-dm refuse more (MAX_CHAT_WORDS in _shared/validation.ts)
 EDIT_WINDOW = timedelta(minutes=15)  # EDIT_WINDOW_MINUTES in _shared/messageRules.ts
 REPORT_ATTACHMENT_EXTENSIONS = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
@@ -43,6 +44,14 @@ def prepare_jpeg(data: bytes, name: str) -> bytes | None:
         if ok and len(jpg) <= MAX_IMAGE:
             return jpg.tobytes()
     return None
+
+
+def local_photo(data: bytes, **kwargs) -> ft.Image:
+    """Build a picker preview on both the pinned Flet release and newer Flet."""
+    try:
+        return ft.Image(src=data, **kwargs)
+    except TypeError:  # Flet 0.86 exposes local bytes as src_base64 instead
+        return ft.Image(src_base64=base64.b64encode(data).decode("ascii"), **kwargs)
 
 
 def report_attachment_mime(name: str) -> str | None:
@@ -93,6 +102,212 @@ def report_dialog(app, user_id: str, username: str, message: dict | None = None,
 def editable(m: dict, now: datetime | None = None) -> bool:
     t = ui.parse_time(m.get("created_at"))
     return t is not None and (now or datetime.now(timezone.utc)) - t < EDIT_WINDOW
+
+
+def show_gallery(app, urls: list[str], selected: int = 0) -> None:
+    """Open one image at a time without changing the feed's scroll position."""
+    if not urls:
+        return
+    state = {"index": max(0, min(selected, len(urls) - 1))}
+    image = ft.Image(src=urls[state["index"]], fit=ft.BoxFit.CONTAIN, expand=True,
+                     gapless_playback=True)
+    counter = ui.body("", size=12)
+    previous = ft.IconButton(ft.Icons.CHEVRON_LEFT, tooltip="Previous photo")
+    following = ft.IconButton(ft.Icons.CHEVRON_RIGHT, tooltip="Next photo")
+
+    def render():
+        image.src = urls[state["index"]]
+        counter.value = f"{state['index'] + 1} / {len(urls)}"
+        previous.disabled = state["index"] == 0
+        following.disabled = state["index"] == len(urls) - 1
+        app.page.update()
+
+    def move(delta: int):
+        state["index"] = max(0, min(len(urls) - 1, state["index"] + delta))
+        render()
+
+    previous.on_click = lambda e: move(-1)
+    following.on_click = lambda e: move(1)
+    render()
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Photo gallery"),
+        content=ft.Column([ft.Container(image, height=min(560, max(260, (getattr(app.page, "height", None) or 800) * 0.65)),
+                                        expand=True),
+                           ft.Row([previous, counter, following], alignment=ft.MainAxisAlignment.CENTER)],
+                          tight=True, width=min(760, max(300, (getattr(app.page, "width", None) or 480) - 32))),
+        actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
+
+
+def image_gallery(app, urls: list[str]) -> ft.Control:
+    """Responsive, aspect-ratio-preserving thumbnails for a post."""
+    urls = [url for url in urls if isinstance(url, str) and url]
+    if not urls:
+        return ft.Container()
+    available = max(320, getattr(app.page, "width", None) or 480)
+    columns = 1 if len(urls) == 1 else min(3, len(urls))
+    width = max(120, min(300, (available - 32 - (columns - 1) * 8) / columns))
+    height = min(280, max(150, width * 0.72))
+    return ft.Row([
+        ft.GestureDetector(
+            content=ft.Container(
+                ft.Image(src=url, width=width, height=height, fit=ft.BoxFit.CONTAIN,
+                         gapless_playback=True),
+                width=width, height=height, bgcolor=ui.C.panel_alt, border_radius=10,
+            ),
+            on_tap=lambda e, i=i: show_gallery(app, urls, i),
+        ) for i, url in enumerate(urls)
+    ], wrap=True, spacing=8, run_spacing=8)
+
+
+def comments_dialog(app, post: dict) -> None:
+    """Show a persistent comment thread and let the user reply at any depth."""
+    comments_box = ft.Column([ui.loading()], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+    composer = ui.field("Write a comment", multiline=True, max_lines=3, max_length=1000, expand=True)
+    reply_note = ui.body("", size=11, color=ui.C.accent, visible=False)
+    state = {"reply_to": None}
+
+    def begin_reply(comment):
+        state["reply_to"] = comment["id"]
+        reply_note.value = f"Replying to {(comment.get('user') or {}).get('username', 'this comment')}"
+        reply_note.visible = True
+        composer.focus()
+        app.page.update()
+
+    def clear_reply(e=None):
+        state["reply_to"] = None
+        reply_note.value, reply_note.visible = "", False
+        app.page.update()
+
+    def choose_reaction(comment):
+        options = [("like", "Like"), ("love", "Love"), ("fire", "Fire"), ("strong", "Strong")]
+
+        def pick(reaction):
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("post-comments", "POST", {"action": "react", "comment_id": comment["id"],
+                                                             "reaction": reaction})
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                    return
+                load()
+            app.run(work)
+
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("React to comment"),
+            content=ft.Column([ui.button(label, lambda e, value=value: pick(value), kind="text")
+                               for value, label in options] + [
+                                   ui.button("Remove reaction", lambda e: pick(None), kind="ghost")],
+                              tight=True),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text")]))
+
+    def edit_comment(comment):
+        editor = ui.field("Comment", value=comment.get("content", ""), multiline=True, max_lines=4,
+                          max_length=1000)
+
+        def save(e):
+            content = editor.value.strip()
+            if not content:
+                app.toast("Comment is required.", error=True)
+                return
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("post-comments", "POST", {"action": "edit", "comment_id": comment["id"],
+                                                             "content": content})
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                    return
+                load()
+            app.run(work)
+
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Edit comment"), content=ft.Container(editor, width=440),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
+
+    def render(comments):
+        children: dict[str | None, list[dict]] = {}
+        for comment in comments:
+            children.setdefault(comment.get("parent_comment_id"), []).append(comment)
+
+        def branch(parent, depth=0, seen=None):
+            seen = seen or set()
+            controls = []
+            for comment in children.get(parent, []):
+                if comment["id"] in seen:
+                    continue
+                seen.add(comment["id"])
+                user = comment.get("user") or {}
+                counts = comment.get("reaction_counts") or {}
+                reaction_total = sum(counts.values())
+                current_reaction = comment.get("my_reaction")
+                reaction_label = (current_reaction.title() if current_reaction else "React") + f" ({reaction_total})"
+                actions = [
+                    ui.button(reaction_label, lambda e, comment=comment: choose_reaction(comment), kind="text"),
+                    ui.button("Reply", lambda e, comment=comment: begin_reply(comment), kind="text"),
+                ]
+                if comment.get("user_id") == app.api.user_id:
+                    actions.append(ui.button("Edit", lambda e, comment=comment: edit_comment(comment), kind="text"))
+                card = ft.Container(ft.Column([
+                    ft.Row([ui.avatar(user.get("username", "?"), 28),
+                            ft.Column([ft.Text(user.get("username", "deleted user"), color=ui.C.text,
+                                               font_family="LatoBold"),
+                                       ui.body(f"{ui.when(comment.get('created_at'))}"
+                                               + (" · edited" if comment.get("edited_at") else ""), size=10)],
+                                      spacing=0, expand=True)], spacing=8),
+                    ft.Text(comment.get("content", ""), color=ui.C.text, selectable=True),
+                    ft.Row(actions, spacing=0),
+                ], spacing=5), padding=ft.Padding.only(left=min(depth, 8) * 18, top=6, bottom=6))
+                controls.append(card)
+                controls.extend(branch(comment["id"], depth + 1, seen))
+            return controls
+
+        comments_box.controls = branch(None) or [ui.empty("No comments yet. Start the conversation.", ft.Icons.FORUM_OUTLINED)]
+        comments_box.update()
+
+    def load():
+        try:
+            comments = app.api.call("post-comments", params={"post_id": post["id"]}).get("comments", [])
+        except ApiError as ex:
+            comments_box.controls = [ui.error_box(str(ex), lambda: app.run(load))]
+            app.page.update()
+            return
+        render(comments)
+        app.page.update()
+
+    def submit(e=None):
+        content = composer.value.strip()
+        if not content:
+            app.toast("Write a comment first.", error=True)
+            return
+        body = {"action": "add", "post_id": post["id"], "content": content,
+                "parent_comment_id": state["reply_to"]}
+        composer.value = ""
+        clear_reply()
+
+        def work():
+            try:
+                app.api.call("post-comments", "POST", body)
+            except ApiError as ex:
+                composer.value = content
+                app.toast(str(ex), error=True)
+                app.page.update()
+                return
+            load()
+        app.run(work)
+
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Comments"),
+        content=ft.Column([comments_box, reply_note,
+                           ft.Row([composer, ft.IconButton(ft.Icons.SEND, on_click=submit,
+                                                           tooltip="Send comment", icon_color=ui.C.primary)],
+                                  vertical_alignment=ft.CrossAxisAlignment.END)],
+                          tight=True, width=min(560, max(300, (getattr(app.page, "width", None) or 480) - 32)),
+                          height=min(660, max(360, (getattr(app.page, "height", None) or 800) * 0.75))),
+        actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
+    app.run(load)
 
 
 def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str, mine=None, change=None) -> ft.Control:
@@ -265,20 +480,26 @@ def feed(app) -> ft.Control:
                       spacing=0, expand=True),
         ])
         if p.get("user_id") == app.api.user_id:
+            head.controls.append(ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit post",
+                                               on_click=lambda e: edit_post(app, p, lambda: app.run(load))))
             head.controls.append(ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete post",
                                                on_click=lambda e: confirm_delete(p)))
         parts = [head]
         if p.get("title"):
             parts.append(ui.heading(p["title"], 16))
         parts.append(ft.Text(p.get("content", ""), color=ui.C.text, selectable=True))
-        if p.get("image_url"):
-            parts.append(ft.Image(src=p["image_url"], border_radius=10, fit=ft.BoxFit.COVER, height=260,
-                                  width=float("inf")))
+        images = p.get("images") or ([p["image_url"]] if p.get("image_url") else [])
+        if images:
+            parts.append(image_gallery(app, images))
         if p.get("tab") == "food" and p.get("calories") is not None:
             parts.append(ui.body(f"{p['calories']} kcal · P {p.get('protein')} g · C {p.get('carbs')} g · F {p.get('fat')} g",
                                  color=ui.C.food, size=13))
             if p.get("ingredients"):
                 parts.append(ui.body(f"Ingredients: {p['ingredients']}", size=13))
+        parts.append(ft.Row([
+            ui.button(f"Comments ({p.get('comment_count', 0)})", lambda e: comments_dialog(app, p),
+                      icon=ft.Icons.FORUM_OUTLINED, kind="text")
+        ], alignment=ft.MainAxisAlignment.END))
         return ui.card(ft.Column(parts, spacing=10))
 
     def confirm_delete(p):
@@ -314,7 +535,7 @@ def feed(app) -> ft.Control:
 
 
 def new_post(app, tab: str, on_posted) -> None:
-    state = {"tab": tab, "image": None}
+    state = {"tab": tab, "images": []}
     title = ui.field("Title (optional)", max_length=100)
     content = ui.field("What did you do today?", multiline=True, min_lines=3, max_lines=6, max_length=1000)
     ingredients = ui.field("Ingredients (optional)", multiline=True, max_lines=4, max_length=1000)
@@ -322,26 +543,41 @@ def new_post(app, tab: str, on_posted) -> None:
               for k in ("calories", "protein", "carbs", "fat")}
     food_box = ft.Column([ingredients, ft.Row([macros["calories"], macros["protein"]]),
                           ft.Row([macros["carbs"], macros["fat"]])], spacing=10, visible=tab == "food")
-    photo_note = ui.body("No photo", size=12)
+    photo_list = ft.Column(spacing=4)
 
     def set_tab(t):
         state["tab"] = t
         food_box.visible = t == "food"
         app.page.update()
 
+    def render_photos():
+        photo_list.controls = [ft.Row([
+            local_photo(item["bytes"], width=52, height=52, fit=ft.BoxFit.COVER, border_radius=6),
+            ui.body(f"{item['name']} · {len(item['bytes']) // 1024} KB", size=12, expand=True),
+            ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo",
+                          on_click=lambda e, item=item: remove_photo(item)),
+        ]) for item in state["images"]]
+        photo_list.update()
+
+    def remove_photo(item):
+        if item in state["images"]:
+            state["images"].remove(item)
+            render_photos()
+
     async def pick_photo(e):
-        files = await app.picker.pick_files(dialog_title="Choose a photo", file_type=ft.FilePickerFileType.IMAGE,
-                                            with_data=True)
-        if not files:
+        remaining = MAX_POST_IMAGES - len(state["images"])
+        if remaining <= 0:
+            app.toast(f"Posts can contain up to {MAX_POST_IMAGES} photos.", error=True)
             return
-        f = files[0]
-        jpg = prepare_jpeg(f.bytes or b"", f.name)
-        if jpg is None:
-            app.toast("Use a JPEG photo under 2 MB.", error=True)
-            return
-        state["image"] = jpg
-        photo_note.value = f"{f.name} · {len(jpg) // 1024} KB"
-        photo_note.update()
+        files = await app.picker.pick_files(dialog_title="Choose photos", file_type=ft.FilePickerFileType.IMAGE,
+                                            allow_multiple=True, with_data=True)
+        for f in (files or [])[:remaining]:
+            jpg = prepare_jpeg(f.bytes or b"", f.name)
+            if jpg is None:
+                app.toast(f"{f.name}: use a JPEG photo under 2 MB.", error=True)
+                continue
+            state["images"].append({"name": f.name, "bytes": jpg})
+        render_photos()
 
     def submit(e):
         body = {"tab": state["tab"], "content": content.value.strip(), "title": title.value.strip() or None}
@@ -353,8 +589,8 @@ def new_post(app, tab: str, on_posted) -> None:
                 app.toast("Food posts need calories, protein, carbs and fat.", error=True)
                 return
             body.update({k: float(m.value) for k, m in macros.items()}, ingredients=ingredients.value.strip() or None)
-        if state["image"]:
-            body["image_base64"] = base64.b64encode(state["image"]).decode()
+        if state["images"]:
+            body["images_base64"] = [base64.b64encode(item["bytes"]).decode() for item in state["images"]]
         app.close_dialog()
 
         def work():
@@ -372,9 +608,98 @@ def new_post(app, tab: str, on_posted) -> None:
         title=ft.Text("New post"), scrollable=True,
         content=ft.Column([ui.chips([("fitness", "Fitness"), ("food", "Food")], tab, set_tab), title, content, food_box,
                            ft.Row([ui.button("Add photo", pick_photo, icon=ft.Icons.PHOTO_OUTLINED, kind="ghost"),
-                                   photo_note], wrap=True)],
+                                   ui.body("Add more later · up to 10 JPEGs", size=11)], wrap=True),
+                           photo_list],
                           tight=True, spacing=12, width=480),
         actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Post", submit)]))
+
+
+def edit_post(app, post: dict, on_saved) -> None:
+    """Edit an author's post while keeping its id (and therefore its interactions)."""
+    tab = post.get("tab", "fitness")
+    state = {"items": [dict(item) for item in (post.get("image_items") or [
+        {"id": None, "url": url} for url in (post.get("images") or [])
+    ])], "new": []}
+    title = ui.field("Title (optional)", value=post.get("title") or "", max_length=100)
+    content = ui.field("What did you do today?", value=post.get("content") or "", multiline=True,
+                       min_lines=3, max_lines=6, max_length=1000)
+    ingredients = ui.field("Ingredients (optional)", value=post.get("ingredients") or "", multiline=True,
+                           max_lines=4, max_length=1000)
+    macros = {k: ui.number_field(k.title() + (" (kcal)" if k == "calories" else " (g)"),
+                                 value=str(post.get(k) or ""), decimals=True, expand=True)
+              for k in ("calories", "protein", "carbs", "fat")}
+    food_box = ft.Column([ingredients, ft.Row([macros["calories"], macros["protein"]]),
+                          ft.Row([macros["carbs"], macros["fat"]])], spacing=10, visible=tab == "food")
+    image_list = ft.Column(spacing=4)
+
+    def remove_item(item):
+        if item in state["items"]:
+            state["items"].remove(item)
+        if item in state["new"]:
+            state["new"].remove(item)
+        render_images()
+
+    def render_images():
+        all_items = [*state["items"], *state["new"]]
+        image_list.controls = [ft.Row([
+            local_photo(item["bytes"], width=52, height=52, fit=ft.BoxFit.COVER, border_radius=6)
+            if item.get("bytes") else ft.Image(src=item.get("url"), width=52, height=52,
+                                                fit=ft.BoxFit.COVER, border_radius=6),
+            ui.body("New photo" if item in state["new"] else "Existing photo", size=12, expand=True),
+            ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo", on_click=lambda e, item=item: remove_item(item)),
+        ]) for item in all_items]
+        image_list.update()
+
+    async def choose_images(e):
+        remaining = MAX_POST_IMAGES - len(state["items"]) - len(state["new"])
+        if remaining <= 0:
+            app.toast(f"Posts can contain up to {MAX_POST_IMAGES} photos.", error=True)
+            return
+        files = await app.picker.pick_files(dialog_title="Choose photos", file_type=ft.FilePickerFileType.IMAGE,
+                                            allow_multiple=True, with_data=True)
+        for f in (files or [])[:remaining]:
+            jpg = prepare_jpeg(f.bytes or b"", f.name)
+            if jpg is None:
+                app.toast(f"{f.name}: use a JPEG photo under 2 MB.", error=True)
+                continue
+            state["new"].append({"id": None, "name": f.name, "bytes": jpg})
+        render_images()
+
+    def submit(e):
+        body = {
+            "post_id": post["id"], "title": title.value.strip() or None, "content": content.value.strip(),
+            "keep_image_ids": [item["id"] for item in state["items"] if item.get("id")],
+            "keep_legacy_image": any(item.get("id") is None and item.get("url") for item in state["items"]),
+            "new_images_base64": [base64.b64encode(item["bytes"]).decode() for item in state["new"]],
+        }
+        if not body["content"]:
+            app.toast("Write something first.", error=True)
+            return
+        if tab == "food":
+            if not all(m.value for m in macros.values()):
+                app.toast("Food posts need calories, protein, carbs and fat.", error=True)
+                return
+            body.update({k: float(m.value) for k, m in macros.items()}, ingredients=ingredients.value.strip() or None)
+        app.close_dialog()
+
+        def work():
+            try:
+                app.api.call("edit-post", "POST", body)
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                return
+            app.toast("Post updated.")
+            on_saved()
+        app.run(work)
+
+    render_images()
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Edit post"), scrollable=True,
+        content=ft.Column([title, content, food_box,
+                           ft.Row([ui.button("Add photos", choose_images, icon=ft.Icons.PHOTO_OUTLINED, kind="ghost"),
+                                   ui.body("Add or remove photos · up to 10 JPEGs", size=11)], wrap=True),
+                           image_list], tight=True, spacing=12, width=480),
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", submit)]))
 
 
 # ---- chat ---------------------------------------------------------------------------
@@ -461,7 +786,10 @@ def friends(app) -> ft.Control:
         ]) for f in res.get("friends", [])] or [ui.empty("No friends yet. Search for people above.", ft.Icons.GROUP_ADD)]
         if res.get("outgoingRequests"):
             rows.append(ui.section("Sent requests"))
-            rows += [person(r["user"], [ui.body("Pending", size=12)]) for r in res["outgoingRequests"]]
+            rows += [person(r["user"], [
+                ui.body("Pending", size=12),
+                ui.button("Cancel", lambda e, r=r: confirm_cancel(r["user"]), kind="text"),
+            ]) for r in res["outgoingRequests"]]
         lists.controls = rows
         app.page.update()
 
@@ -473,6 +801,16 @@ def friends(app) -> ft.Control:
                                             content=ft.Text("You won't be able to message each other until you're friends again."),
                                             actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"),
                                                      ui.button("Remove", go, kind="danger")]))
+
+    def confirm_cancel(u):
+        def go(e):
+            app.close_dialog()
+            act("remove-friend", {"friend_id": u["id"]}, f"Request to {u['username']} cancelled.")
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text(f"Cancel request to {u['username']}?"),
+            content=ft.Text("They will no longer see this pending request."),
+            actions=[ui.button("Keep", lambda e: app.close_dialog(), kind="text"),
+                     ui.button("Cancel request", go, kind="danger")]))
 
     def do_search_work(q):
         try:

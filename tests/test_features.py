@@ -1,5 +1,6 @@
 """Routines, the strength board, admin sections by role, and deleting an account."""
 import json
+import asyncio
 from datetime import datetime, timezone
 
 import flet as ft
@@ -219,6 +220,128 @@ def test_editing_and_deleting_your_own_workout_and_meal():
         ("edit-workout", {"workout_log_id": "w2", "duration_seconds": 60}),
         ("edit-meal", {"meal_log_id": "meal1", "weight_g": 300.0, "meal_period": "Lunch"})]
     assert done == [1] and app.toasts == ["Workout updated · 20 → 30 XP", "Workout updated · 20 → 30 XP", "Meal updated."]
+
+
+def test_outgoing_friend_requests_can_be_cancelled():
+    from fakes import walk
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        if req.url.path.endswith("get-friends"):
+            return httpx.Response(200, json={"outgoingRequests": [{
+                "friendship_id": "rel1", "user": {"id": "u2", "username": "Rin", "rank": "Bronze"}
+            }], "friends": [], "incomingRequests": []})
+        if req.url.path.endswith("remove-friend"):
+            sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    screen = social.friends(app)
+    next(c for c in walk(screen) if getattr(c, "content", None) == "Cancel").on_click(None)
+    button(app.dialogs[-1], "Cancel request").on_click(None)
+    assert sent == [{"friend_id": "u2"}]
+    assert app.toasts == ["Request to Rin cancelled."]
+
+
+def test_new_post_appends_multiple_photo_picks_and_sends_all_images(monkeypatch):
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True, "gold_awarded": 0})
+
+    class Picked:
+        def __init__(self, name):
+            self.name, self.bytes = name, b"source"
+
+    class Picker:
+        async def pick_files(self, **kwargs):
+            assert kwargs["allow_multiple"] is True
+            return [Picked("one.jpg"), Picked("two.jpg")]
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    app.picker = Picker()
+    monkeypatch.setattr(social, "prepare_jpeg", lambda data, name: (b"jpeg-" + name.encode()))
+    monkeypatch.setattr(BaseControl, "update", lambda self: None)
+    social.new_post(app, "fitness", lambda: None)
+    add = next(c for c in walk(app.dialogs[-1]) if getattr(c, "content", None) == "Add photo")
+    asyncio.run(add.on_click(None))
+    fields(app.dialogs[-1])["What did you do today?"].value = "Leg day completed."
+    button(app.dialogs[-1], "Post").on_click(None)
+    assert sent[0]["images_base64"] == [
+        "anBlZy1vbmUuanBn", "anBlZy10d28uanBn"
+    ]
+
+
+def test_community_gallery_wraps_photos_without_forcing_cover_crops():
+    from fakes import walk
+    from views import social
+
+    app = FakeApp(lambda req: httpx.Response(200, json={}), profile={"username": "ash"})
+    gallery = social.image_gallery(app, ["https://images/one.jpg", "https://images/two.jpg"])
+    images = [c for c in walk(gallery) if isinstance(c, ft.Image)]
+    assert len(images) == 2 and all(c.fit == ft.BoxFit.CONTAIN for c in images)
+    assert len(gallery.controls) == 2
+
+
+def test_editing_a_post_keeps_the_post_id_and_selected_images():
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    original = BaseControl.update
+    BaseControl.update = lambda self: None
+    try:
+        social.edit_post(app, {"id": "post1", "tab": "fitness", "content": "old",
+                               "image_items": [{"id": "img1", "url": "https://images/one.jpg"}]}, lambda: None)
+        fields(app.dialogs[-1])["What did you do today?"].value = "updated"
+        button(app.dialogs[-1], "Save").on_click(None)
+    finally:
+        BaseControl.update = original
+    assert sent == [{"post_id": "post1", "title": None, "content": "updated", "keep_image_ids": ["img1"],
+                     "keep_legacy_image": False, "new_images_base64": []}]
+
+
+def test_own_comment_can_be_edited_without_changing_its_thread_identity():
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={"comments": [{"id": "comment1", "post_id": "post1", "user_id": "u1",
+                "parent_comment_id": None, "content": "old comment", "created_at": "2026-10-31T00:00:00Z",
+                "user": {"username": "ash"}, "reaction_counts": {"like": 2}, "my_reaction": "like"}]})
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    app.api.set_session({"access_token": "tok", "refresh_token": "ref", "user": {"id": "u1"}})
+    original = BaseControl.update
+    BaseControl.update = lambda self: None
+    try:
+        social.comments_dialog(app, {"id": "post1"})
+        button(app.dialogs[-1], "Edit").on_click(None)
+        fields(app.dialogs[-1])["Comment"].value = "edited comment"
+        button(app.dialogs[-1], "Save").on_click(None)
+    finally:
+        BaseControl.update = original
+    assert sent == [{"action": "edit", "comment_id": "comment1", "content": "edited comment"}]
 
 
 def test_problem_reports_include_an_attachment_list_and_allow_only_known_types():
