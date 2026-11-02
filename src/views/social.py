@@ -185,6 +185,31 @@ def comments_dialog(app, post: dict) -> None:
                               tight=True),
             actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text")]))
 
+    def edit_comment(comment):
+        editor = ui.field("Comment", value=comment.get("content", ""), multiline=True, max_lines=4,
+                          max_length=1000)
+
+        def save(e):
+            content = editor.value.strip()
+            if not content:
+                app.toast("Comment is required.", error=True)
+                return
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("post-comments", "POST", {"action": "edit", "comment_id": comment["id"],
+                                                             "content": content})
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                    return
+                load()
+            app.run(work)
+
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Edit comment"), content=ft.Container(editor, width=440),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", save)]))
+
     def render(comments):
         children: dict[str | None, list[dict]] = {}
         for comment in comments:
@@ -206,6 +231,8 @@ def comments_dialog(app, post: dict) -> None:
                     ui.button(reaction_label, lambda e, comment=comment: choose_reaction(comment), kind="text"),
                     ui.button("Reply", lambda e, comment=comment: begin_reply(comment), kind="text"),
                 ]
+                if comment.get("user_id") == app.api.user_id:
+                    actions.append(ui.button("Edit", lambda e, comment=comment: edit_comment(comment), kind="text"))
                 card = ft.Container(ft.Column([
                     ft.Row([ui.avatar(user.get("username", "?"), 28),
                             ft.Column([ft.Text(user.get("username", "deleted user"), color=ui.C.text,

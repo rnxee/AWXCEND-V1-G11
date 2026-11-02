@@ -315,6 +315,35 @@ def test_editing_a_post_keeps_the_post_id_and_selected_images():
                      "keep_legacy_image": False, "new_images_base64": []}]
 
 
+def test_own_comment_can_be_edited_without_changing_its_thread_identity():
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={"comments": [{"id": "comment1", "post_id": "post1", "user_id": "u1",
+                "parent_comment_id": None, "content": "old comment", "created_at": "2026-10-31T00:00:00Z",
+                "user": {"username": "ash"}, "reaction_counts": {"like": 2}, "my_reaction": "like"}]})
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    app.api.set_session({"access_token": "tok", "refresh_token": "ref", "user": {"id": "u1"}})
+    original = BaseControl.update
+    BaseControl.update = lambda self: None
+    try:
+        social.comments_dialog(app, {"id": "post1"})
+        button(app.dialogs[-1], "Edit").on_click(None)
+        fields(app.dialogs[-1])["Comment"].value = "edited comment"
+        button(app.dialogs[-1], "Save").on_click(None)
+    finally:
+        BaseControl.update = original
+    assert sent == [{"action": "edit", "comment_id": "comment1", "content": "edited comment"}]
+
+
 def chat_with(messages: list[dict]):
     """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
     from views import social
