@@ -67,7 +67,7 @@ def test_system_back_pops_a_subscreen_and_exits_only_at_main_root():
 
     page = Page()
     app = App.__new__(App)
-    app.page, app.in_main, app.cleanups = page, True, []
+    app.page, app.in_main, app.tab, app.cleanups = page, True, "home", []
     app.stack = [ft.Text("previous")]
     app.body = ft.Container(content=ft.Text("current"))
 
