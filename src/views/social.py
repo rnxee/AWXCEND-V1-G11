@@ -312,6 +312,8 @@ def feed(app) -> ft.Control:
                       spacing=0, expand=True),
         ])
         if p.get("user_id") == app.api.user_id:
+            head.controls.append(ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=ui.C.dim, tooltip="Edit post",
+                                               on_click=lambda e: edit_post(app, p, lambda: app.run(load))))
             head.controls.append(ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ui.C.dim, tooltip="Delete post",
                                                on_click=lambda e: confirm_delete(p)))
         parts = [head]
@@ -439,6 +441,93 @@ def new_post(app, tab: str, on_posted) -> None:
                            photo_list],
                           tight=True, spacing=12, width=480),
         actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Post", submit)]))
+
+
+def edit_post(app, post: dict, on_saved) -> None:
+    """Edit an author's post while keeping its id (and therefore its interactions)."""
+    tab = post.get("tab", "fitness")
+    state = {"items": [dict(item) for item in (post.get("image_items") or [
+        {"id": None, "url": url} for url in (post.get("images") or [])
+    ])], "new": []}
+    title = ui.field("Title (optional)", value=post.get("title") or "", max_length=100)
+    content = ui.field("What did you do today?", value=post.get("content") or "", multiline=True,
+                       min_lines=3, max_lines=6, max_length=1000)
+    ingredients = ui.field("Ingredients (optional)", value=post.get("ingredients") or "", multiline=True,
+                           max_lines=4, max_length=1000)
+    macros = {k: ui.number_field(k.title() + (" (kcal)" if k == "calories" else " (g)"),
+                                 value=str(post.get(k) or ""), decimals=True, expand=True)
+              for k in ("calories", "protein", "carbs", "fat")}
+    food_box = ft.Column([ingredients, ft.Row([macros["calories"], macros["protein"]]),
+                          ft.Row([macros["carbs"], macros["fat"]])], spacing=10, visible=tab == "food")
+    image_list = ft.Column(spacing=4)
+
+    def remove_item(item):
+        if item in state["items"]:
+            state["items"].remove(item)
+        if item in state["new"]:
+            state["new"].remove(item)
+        render_images()
+
+    def render_images():
+        all_items = [*state["items"], *state["new"]]
+        image_list.controls = [ft.Row([
+            ft.Image(src=item.get("bytes") if item.get("bytes") else item.get("url"), width=52, height=52,
+                     fit=ft.BoxFit.COVER, border_radius=6),
+            ui.body("New photo" if item in state["new"] else "Existing photo", size=12, expand=True),
+            ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo", on_click=lambda e, item=item: remove_item(item)),
+        ]) for item in all_items]
+        image_list.update()
+
+    async def choose_images(e):
+        remaining = MAX_POST_IMAGES - len(state["items"]) - len(state["new"])
+        if remaining <= 0:
+            app.toast(f"Posts can contain up to {MAX_POST_IMAGES} photos.", error=True)
+            return
+        files = await app.picker.pick_files(dialog_title="Choose photos", file_type=ft.FilePickerFileType.IMAGE,
+                                            allow_multiple=True, with_data=True)
+        for f in (files or [])[:remaining]:
+            jpg = prepare_jpeg(f.bytes or b"", f.name)
+            if jpg is None:
+                app.toast(f"{f.name}: use a JPEG photo under 2 MB.", error=True)
+                continue
+            state["new"].append({"id": None, "name": f.name, "bytes": jpg})
+        render_images()
+
+    def submit(e):
+        body = {
+            "post_id": post["id"], "title": title.value.strip() or None, "content": content.value.strip(),
+            "keep_image_ids": [item["id"] for item in state["items"] if item.get("id")],
+            "keep_legacy_image": any(item.get("id") is None and item.get("url") for item in state["items"]),
+            "new_images_base64": [base64.b64encode(item["bytes"]).decode() for item in state["new"]],
+        }
+        if not body["content"]:
+            app.toast("Write something first.", error=True)
+            return
+        if tab == "food":
+            if not all(m.value for m in macros.values()):
+                app.toast("Food posts need calories, protein, carbs and fat.", error=True)
+                return
+            body.update({k: float(m.value) for k, m in macros.items()}, ingredients=ingredients.value.strip() or None)
+        app.close_dialog()
+
+        def work():
+            try:
+                app.api.call("edit-post", "POST", body)
+            except ApiError as ex:
+                app.toast(str(ex), error=True)
+                return
+            app.toast("Post updated.")
+            on_saved()
+        app.run(work)
+
+    render_images()
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Edit post"), scrollable=True,
+        content=ft.Column([title, content, food_box,
+                           ft.Row([ui.button("Add photos", choose_images, icon=ft.Icons.PHOTO_OUTLINED, kind="ghost"),
+                                   ui.body("Add or remove photos · up to 10 JPEGs", size=11)], wrap=True),
+                           image_list], tight=True, spacing=12, width=480),
+        actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Save", submit)]))
 
 
 # ---- chat ---------------------------------------------------------------------------

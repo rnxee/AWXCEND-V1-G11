@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   const posts = data ?? []
   const postIds = posts.map(post => post.id)
   const { data: imageRows, error: imageError } = postIds.length
-    ? await admin.from('gymmunity_post_images').select('post_id, image_url, sort_order')
+    ? await admin.from('gymmunity_post_images').select('id, post_id, image_url, sort_order')
       .in('post_id', postIds).order('sort_order', { ascending: true })
     : { data: [], error: null }
   if (imageError) {
@@ -64,14 +64,19 @@ Deno.serve(async (req) => {
     })
   }
   const imagesByPost = new Map<string, string[]>()
+  const imageItemsByPost = new Map<string, { id: string; url: string }[]>()
   for (const row of imageRows ?? []) {
     const list = imagesByPost.get(row.post_id) ?? []
     list.push(row.image_url)
     imagesByPost.set(row.post_id, list)
+    const items = imageItemsByPost.get(row.post_id) ?? []
+    items.push({ id: row.id, url: row.image_url })
+    imageItemsByPost.set(row.post_id, items)
   }
   const withImages = posts.map(post => ({
     ...post,
     images: imagesByPost.get(post.id) ?? (post.image_url ? [post.image_url] : []),
+    image_items: imageItemsByPost.get(post.id) ?? (post.image_url ? [{ id: null, url: post.image_url }] : []),
   }))
 
   return new Response(JSON.stringify({ success: true, posts: withImages }), {

@@ -290,6 +290,31 @@ def test_community_gallery_wraps_photos_without_forcing_cover_crops():
     assert len(gallery.controls) == 2
 
 
+def test_editing_a_post_keeps_the_post_id_and_selected_images():
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True})
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    original = BaseControl.update
+    BaseControl.update = lambda self: None
+    try:
+        social.edit_post(app, {"id": "post1", "tab": "fitness", "content": "old",
+                               "image_items": [{"id": "img1", "url": "https://images/one.jpg"}]}, lambda: None)
+        fields(app.dialogs[-1])["What did you do today?"].value = "updated"
+        button(app.dialogs[-1], "Save").on_click(None)
+    finally:
+        BaseControl.update = original
+    assert sent == [{"post_id": "post1", "title": None, "content": "updated", "keep_image_ids": ["img1"],
+                     "keep_legacy_image": False, "new_images_base64": []}]
+
+
 def chat_with(messages: list[dict]):
     """A chat panel on a fake server: returns (list view, server's messages, calls made)."""
     from views import social
