@@ -58,12 +58,19 @@ def test_system_back_pops_a_subscreen_and_exits_only_at_main_root():
     class Page:
         def __init__(self):
             self.window = Window()
+            self.dialogs = []
 
         def update(self):
             pass
 
         def run_task(self, fn, *args):
             fn(*args)
+
+        def show_dialog(self, dialog):
+            self.dialogs.append(dialog)
+
+        def pop_dialog(self):
+            return self.dialogs.pop() if self.dialogs else None
 
     page = Page()
     app = App.__new__(App)
@@ -75,6 +82,8 @@ def test_system_back_pops_a_subscreen_and_exits_only_at_main_root():
     assert not app.stack and app.body.content.value == "previous" and page.window.closed == 0
 
     app.on_back()
+    assert page.window.closed == 0 and len(page.dialogs) == 1
+    page.dialogs[-1].actions[1].on_click(None)
     assert page.window.closed == 1
 
 
@@ -90,9 +99,16 @@ def test_system_back_returns_any_tab_to_the_home_dashboard_before_exit(tab):
     class Page:
         def __init__(self):
             self.window = Window()
+            self.dialogs = []
 
         def run_task(self, fn, *args):
             fn(*args)
+
+        def show_dialog(self, dialog):
+            self.dialogs.append(dialog)
+
+        def pop_dialog(self):
+            return self.dialogs.pop() if self.dialogs else None
 
     page = Page()
     app = App.__new__(App)
@@ -104,7 +120,30 @@ def test_system_back_returns_any_tab_to_the_home_dashboard_before_exit(tab):
     assert destinations == ["home"] and page.window.closed == 0
 
     app.on_back()
+    assert page.window.closed == 0 and len(page.dialogs) == 1
+    page.dialogs[-1].actions[1].on_click(None)
     assert page.window.closed == 1
+
+
+def test_rapid_platform_back_events_do_not_rebuild_shell_twice():
+    class Page:
+        def __init__(self):
+            self.dialogs = []
+
+        def show_dialog(self, dialog):
+            self.dialogs.append(dialog)
+
+    page = Page()
+    app = App.__new__(App)
+    app.page, app.in_main, app.tab, app.stack = page, True, "train", []
+    destinations = []
+    app.go = lambda tab: (destinations.append(tab), setattr(app, "tab", tab))
+
+    event = object()
+    app.on_pop_invoked(event)
+    app.on_pop_invoked(event)
+
+    assert destinations == ["home"] and page.dialogs == []
 
 
 def test_text_fields_accept_typing():

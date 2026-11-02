@@ -4,17 +4,14 @@ version = "1.0.2"
 description = "AWXCEND - gamified fitness tracking (Python + Flet rebuild)"
 requires-python = ">=3.12"
 dependencies = [
-  "flet==0.86.5",
-  "httpx>=0.28",
-  "flet-geolocator==0.86.5",  # GPS for runs and walks (pinned with flet: they ship together)
+    "flet==0.86.5",
+    "httpx>=0.28",
+    "flet-geolocator==0.86.5", # GPS for runs and walks (pinned with flet: they ship together)
 ]
 
 [project.optional-dependencies]
 # Camera workouts: desktop only. MediaPipe has no Android build, so the APK leaves these out.
-desktop = [
-  "opencv-python>=4.10",
-  "mediapipe>=0.10.35",
-]
+desktop = ["opencv-python>=4.10", "mediapipe>=0.10.35"]
 dev = ["pytest>=8"]
 
 [tool.flet]
@@ -35,12 +32,25 @@ path = "src"
 # Camera tracking is desktop-only (MediaPipe has no Android build): leave its model and code out of the APK.
 # The packager skips a path only on an exact match with the OS path separator, so each is listed both ways.
 exclude = [
-  "assets/pose_landmarker_lite.task", 'assets\pose_landmarker_lite.task',
-  "pose/camera.py", 'pose\camera.py', "views/camera.py", 'views\camera.py',
-  ".ruff_cache", "views/.ruff_cache", 'views\.ruff_cache',
-  "__pycache__", "pose/__pycache__", 'pose\__pycache__', "views/__pycache__", 'views\__pycache__',
+    "assets/pose_landmarker_lite.task",
+    'assets\pose_landmarker_lite.task',
+    "pose/camera.py",
+    'pose\camera.py',
+    "views/camera.py",
+    'views\camera.py',
+    ".ruff_cache",
+    "views/.ruff_cache",
+    'views\.ruff_cache',
+    "__pycache__",
+    "pose/__pycache__",
+    'pose\__pycache__',
+    "views/__pycache__",
+    'views\__pycache__',
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+jni = "^1.1.0"

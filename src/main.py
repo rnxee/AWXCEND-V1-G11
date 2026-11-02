@@ -1,5 +1,6 @@
 """AWXCEND entry point: session restore, auth gate, and the app shell (nav + screens)."""
 import json
+import time
 
 import flet as ft
 
@@ -32,6 +33,8 @@ class App:
         self.in_main = False
         self.wide: bool | None = None  # which shell is showing: side rail (True) or bottom bar (False)
         self.cleanups: list = []  # run when leaving a screen (e.g. release the camera)
+        self._back_lock_until = 0.0
+        self._exit_dialog_open = False
         self.body = ft.Container(expand=True)
         self.bar = ft.NavigationBar(
             destinations=[ft.NavigationBarDestination(icon=i, selected_icon=s, label=t) for _, t, i, s in TABS],
@@ -145,7 +148,18 @@ class App:
             main = ft.Row([self.rail, edge, self.body], expand=True, spacing=0)
         else:
             main = ft.Column([self.body, self.bar], expand=True, spacing=0)
-        self.page.controls[:] = [ui.backdrop(ft.SafeArea(main, expand=True))]
+        self.page.controls[:] = [ui.backdrop(self._pop_scope(ft.SafeArea(main, expand=True)))]
+
+    def _pop_scope(self, content: ft.Control) -> ft.Control:
+        """Block route popping on Flet versions that provide PopScope.
+
+        Flet 0.86.5 delivers Android back through ``Page.on_view_pop`` instead;
+        that compatibility hook is installed in ``main`` below.
+        """
+        pop_scope = getattr(ft, "PopScope", None)
+        if pop_scope is None:
+            return content
+        return pop_scope(content=content, can_pop=False, on_pop_invoked=self.on_pop_invoked)
 
     def on_resize(self, e=None) -> None:
         # Only crossing the WIDE line changes the shell. Rebuilding it on every resize event re-sent the
@@ -177,9 +191,9 @@ class App:
             self.page.update()
 
     def _exit_window(self) -> None:
-        """Ask the host to close the app after the main screen is backed out of."""
+        """Close the host window after the user confirms the exit prompt."""
         window = getattr(self.page, "window", None)
-        close = getattr(window, "destroy", None) or getattr(window, "close", None)
+        close = getattr(window, "close", None) or getattr(window, "destroy", None)
         if not close:
             return
         run_task = getattr(self.page, "run_task", None)
@@ -188,22 +202,47 @@ class App:
         else:  # small test doubles and older hosts may expose a synchronous close
             close()
 
-    def on_back(self, e=None) -> None:
-        """Handle the platform back action without rebuilding the current tab.
+    def _show_exit_confirmation(self) -> None:
+        if getattr(self, "_exit_dialog_open", False):
+            return
+        self._exit_dialog_open = True
 
-        Flet delivers Android back (and view/app-bar back) through ``on_view_pop``.
-        The app uses its own stack rather than ``page.views``, so a default route
-        pop would otherwise recreate the root screen and look like a Home action.
-        """
+        def cancel(_e):
+            self._exit_dialog_open = False
+            self.close_dialog()
+
+        def confirm(_e):
+            self._exit_dialog_open = False
+            self.close_dialog()
+            self._exit_window()
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Exit AWXCEND?"),
+            content=ft.Text("Are you sure you want to exit?"),
+            actions=[ui.button("Cancel", cancel, kind="text"),
+                     ui.button("Exit", confirm, kind="danger")],
+        ))
+
+    def on_pop_invoked(self, _e=None) -> None:
+        """Handle Android back without allowing Flet to pop the app shell."""
+        if _e is not None:
+            now = time.monotonic()
+            if now < getattr(self, "_back_lock_until", 0.0):
+                return
+            self._back_lock_until = now + 0.35
+
         if self.stack:
             self.back()
         elif self.in_main and self.tab != "home":
-            # The tab shell is the app's second navigation level.  Back from
-            # Train/Food/Social/Profile must first return to the dashboard;
-            # only a second back from the Home root exits the app.
             self.go("home")
         elif self.in_main:
-            self._exit_window()
+            self._show_exit_confirmation()
+
+    # Kept as a small compatibility alias for desktop keyboard navigation and
+    # older callers that used the previous handler name.
+    on_back = on_pop_invoked
+
 
     def on_keyboard(self, e) -> None:
         # Desktop browser-back/Escape is useful during development and mirrors
@@ -230,7 +269,9 @@ async def main(page: ft.Page):
     app.picker = ft.FilePicker()
     page.services.append(app.picker)
     page.on_resize = app.on_resize
-    page.on_view_pop = app.on_back
+    # Flet 0.86.5 sends Android's system back through on_view_pop. Newer
+    # versions use PopScope, which is installed around the app shell in layout.
+    page.on_view_pop = app.on_pop_invoked
     page.on_keyboard_event = app.on_keyboard
 
 
