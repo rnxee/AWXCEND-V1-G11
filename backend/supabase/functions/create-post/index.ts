@@ -14,6 +14,7 @@ const DAILY_POST_GOLD = 10
 const ALLOWED_TABS = ['fitness', 'food']
 const MAX_CONTENT_LENGTH = 1000
 const MAX_TITLE_LENGTH = 100
+const MAX_IMAGES = 10
 // ~2MB decoded. The client always re-encodes to an 800px JPEG (well under
 // this), so the cap and the bucket's own 2MB limit are only backstops.
 const MAX_IMAGE_BASE64_LENGTH = 2_800_000
@@ -49,6 +50,9 @@ Deno.serve(async (req) => {
   const content = cleanText(body.content)
   const title = cleanText(body.title)
   const imageBase64 = typeof body.image_base64 === 'string' ? body.image_base64.trim() : ''
+  const imageInputs = Array.isArray(body.images_base64)
+    ? body.images_base64.filter((value: unknown): value is string => typeof value === 'string').map(value => value.trim())
+    : imageBase64 ? [imageBase64] : []
   const ingredients = cleanText(body.ingredients)
 
   const errors: string[] = []
@@ -56,7 +60,8 @@ Deno.serve(async (req) => {
   if (!content) errors.push('content is required')
   if (content.length > MAX_CONTENT_LENGTH) errors.push(`content must be ${MAX_CONTENT_LENGTH} characters or fewer`)
   if (title.length > MAX_TITLE_LENGTH) errors.push(`title must be ${MAX_TITLE_LENGTH} characters or fewer`)
-  if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) errors.push('Image too large')
+  if (imageInputs.length > MAX_IMAGES) errors.push(`A post can contain at most ${MAX_IMAGES} images`)
+  if (imageInputs.some(image => image.length > MAX_IMAGE_BASE64_LENGTH)) errors.push('Image too large')
   if (ingredients.length > MAX_INGREDIENTS_LENGTH) errors.push(`ingredients must be ${MAX_INGREDIENTS_LENGTH} characters or fewer`)
 
   // Nutrition facts are only meaningful — and only required — on a food
@@ -93,12 +98,16 @@ Deno.serve(async (req) => {
   // the client's job is to hand over bytes, not to be trusted about where
   // they end up. Decode failures fail the whole post rather than silently
   // dropping the image the user thought they were attaching.
-  let imageUrl: string | null = null
-  if (imageBase64) {
+  const uploadedImages: { path: string; url: string }[] = []
+  const cleanupImages = async () => {
+    if (uploadedImages.length) await admin.storage.from('gymmunity-images').remove(uploadedImages.map(image => image.path))
+  }
+  for (const imageBase64 of imageInputs) {
     let bytes: Uint8Array
     try {
       bytes = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0))
     } catch {
+      await cleanupImages()
       return new Response(JSON.stringify({ success: false, error: 'Invalid image data' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -107,6 +116,7 @@ Deno.serve(async (req) => {
     // The bucket is public and the post isn't moderated yet: store real JPEGs
     // only, so it can never host arbitrary files under our domain.
     if (!isJpeg(bytes)) {
+      await cleanupImages()
       return new Response(JSON.stringify({ success: false, error: 'Images must be photos (JPEG).' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -118,12 +128,13 @@ Deno.serve(async (req) => {
       .upload(path, bytes, { contentType: 'image/jpeg' })
 
     if (uploadError) {
+      await cleanupImages()
       return new Response(JSON.stringify({ success: false, error: `Image upload failed: ${uploadError.message}` }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
-    imageUrl = admin.storage.from('gymmunity-images').getPublicUrl(path).data.publicUrl
+    uploadedImages.push({ path, url: admin.storage.from('gymmunity-images').getPublicUrl(path).data.publicUrl })
   }
 
   // No auto-moderation heuristic exists yet (out of scope for this pass —
@@ -135,17 +146,36 @@ Deno.serve(async (req) => {
   const { data: post, error } = await admin
     .from('gymmunity_posts')
     .insert({
-      user_id: user.id, tab, content, title: title || null, image_url: imageUrl,
+      user_id: user.id, tab, content, title: title || null, image_url: uploadedImages[0]?.url ?? null,
       ingredients: ingredients || null, calories, protein, carbs, fat
     })
     .select()
     .single()
 
   if (error) {
+    await cleanupImages()
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
+  }
+
+  if (uploadedImages.length) {
+    const { error: imageRowsError } = await admin.from('gymmunity_post_images').insert(uploadedImages.map((image, sort_order) => ({
+      post_id: post.id,
+      user_id: user.id,
+      image_url: image.url,
+      storage_path: image.path,
+      sort_order,
+    })))
+    if (imageRowsError) {
+      await cleanupImages()
+      await admin.from('gymmunity_posts').delete().eq('id', post.id).eq('user_id', user.id)
+      return new Response(JSON.stringify({ success: false, error: `Image record failed: ${imageRowsError.message}` }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
   }
 
   // One award per author per day, enforced by the idempotency key rather than

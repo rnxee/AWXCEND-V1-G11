@@ -12,6 +12,7 @@ REPORT_REASONS = [("harassment", "Harassment or bullying"), ("spam", "Spam"), ("
                   ("inappropriate_content", "Inappropriate content"), ("cheating", "Cheating / faking stats"),
                   ("other", "Other")]
 MAX_IMAGE = 1_900_000  # create-post takes JPEGs up to ~2 MB
+MAX_POST_IMAGES = 10
 MAX_CHAT_WORDS = 100  # chat-send and send-dm refuse more (MAX_CHAT_WORDS in _shared/validation.ts)
 EDIT_WINDOW = timedelta(minutes=15)  # EDIT_WINDOW_MINUTES in _shared/messageRules.ts
 
@@ -305,7 +306,7 @@ def feed(app) -> ft.Control:
 
 
 def new_post(app, tab: str, on_posted) -> None:
-    state = {"tab": tab, "image": None}
+    state = {"tab": tab, "images": []}
     title = ui.field("Title (optional)", max_length=100)
     content = ui.field("What did you do today?", multiline=True, min_lines=3, max_lines=6, max_length=1000)
     ingredients = ui.field("Ingredients (optional)", multiline=True, max_lines=4, max_length=1000)
@@ -313,26 +314,42 @@ def new_post(app, tab: str, on_posted) -> None:
               for k in ("calories", "protein", "carbs", "fat")}
     food_box = ft.Column([ingredients, ft.Row([macros["calories"], macros["protein"]]),
                           ft.Row([macros["carbs"], macros["fat"]])], spacing=10, visible=tab == "food")
-    photo_note = ui.body("No photo", size=12)
+    photo_list = ft.Column(spacing=4)
 
     def set_tab(t):
         state["tab"] = t
         food_box.visible = t == "food"
         app.page.update()
 
+    def render_photos():
+        photo_list.controls = [ft.Row([
+            ft.Image(src=item["bytes"], width=52, height=52,
+                     fit=ft.BoxFit.COVER, border_radius=6),
+            ui.body(f"{item['name']} · {len(item['bytes']) // 1024} KB", size=12, expand=True),
+            ft.IconButton(ft.Icons.CLOSE, tooltip="Remove photo",
+                          on_click=lambda e, item=item: remove_photo(item)),
+        ]) for item in state["images"]]
+        photo_list.update()
+
+    def remove_photo(item):
+        if item in state["images"]:
+            state["images"].remove(item)
+            render_photos()
+
     async def pick_photo(e):
-        files = await app.picker.pick_files(dialog_title="Choose a photo", file_type=ft.FilePickerFileType.IMAGE,
-                                            with_data=True)
-        if not files:
+        remaining = MAX_POST_IMAGES - len(state["images"])
+        if remaining <= 0:
+            app.toast(f"Posts can contain up to {MAX_POST_IMAGES} photos.", error=True)
             return
-        f = files[0]
-        jpg = prepare_jpeg(f.bytes or b"", f.name)
-        if jpg is None:
-            app.toast("Use a JPEG photo under 2 MB.", error=True)
-            return
-        state["image"] = jpg
-        photo_note.value = f"{f.name} · {len(jpg) // 1024} KB"
-        photo_note.update()
+        files = await app.picker.pick_files(dialog_title="Choose photos", file_type=ft.FilePickerFileType.IMAGE,
+                                            allow_multiple=True, with_data=True)
+        for f in (files or [])[:remaining]:
+            jpg = prepare_jpeg(f.bytes or b"", f.name)
+            if jpg is None:
+                app.toast(f"{f.name}: use a JPEG photo under 2 MB.", error=True)
+                continue
+            state["images"].append({"name": f.name, "bytes": jpg})
+        render_photos()
 
     def submit(e):
         body = {"tab": state["tab"], "content": content.value.strip(), "title": title.value.strip() or None}
@@ -344,8 +361,8 @@ def new_post(app, tab: str, on_posted) -> None:
                 app.toast("Food posts need calories, protein, carbs and fat.", error=True)
                 return
             body.update({k: float(m.value) for k, m in macros.items()}, ingredients=ingredients.value.strip() or None)
-        if state["image"]:
-            body["image_base64"] = base64.b64encode(state["image"]).decode()
+        if state["images"]:
+            body["images_base64"] = [base64.b64encode(item["bytes"]).decode() for item in state["images"]]
         app.close_dialog()
 
         def work():
@@ -363,7 +380,8 @@ def new_post(app, tab: str, on_posted) -> None:
         title=ft.Text("New post"), scrollable=True,
         content=ft.Column([ui.chips([("fitness", "Fitness"), ("food", "Food")], tab, set_tab), title, content, food_box,
                            ft.Row([ui.button("Add photo", pick_photo, icon=ft.Icons.PHOTO_OUTLINED, kind="ghost"),
-                                   photo_note], wrap=True)],
+                                   ui.body("Add more later · up to 10 JPEGs", size=11)], wrap=True),
+                           photo_list],
                           tight=True, spacing=12, width=480),
         actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text"), ui.button("Post", submit)]))
 

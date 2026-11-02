@@ -51,7 +51,30 @@ Deno.serve(async (req) => {
     })
   }
 
-  return new Response(JSON.stringify({ success: true, posts: data ?? [] }), {
+  const posts = data ?? []
+  const postIds = posts.map(post => post.id)
+  const { data: imageRows, error: imageError } = postIds.length
+    ? await admin.from('gymmunity_post_images').select('post_id, image_url, sort_order')
+      .in('post_id', postIds).order('sort_order', { ascending: true })
+    : { data: [], error: null }
+  if (imageError) {
+    return new Response(JSON.stringify({ success: false, error: imageError.message }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const imagesByPost = new Map<string, string[]>()
+  for (const row of imageRows ?? []) {
+    const list = imagesByPost.get(row.post_id) ?? []
+    list.push(row.image_url)
+    imagesByPost.set(row.post_id, list)
+  }
+  const withImages = posts.map(post => ({
+    ...post,
+    images: imagesByPost.get(post.id) ?? (post.image_url ? [post.image_url] : []),
+  }))
+
+  return new Response(JSON.stringify({ success: true, posts: withImages }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })

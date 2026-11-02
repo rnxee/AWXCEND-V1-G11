@@ -1,5 +1,6 @@
 """Routines, the strength board, admin sections by role, and deleting an account."""
 import json
+import asyncio
 from datetime import datetime, timezone
 
 import flet as ft
@@ -242,6 +243,40 @@ def test_outgoing_friend_requests_can_be_cancelled():
     button(app.dialogs[-1], "Cancel request").on_click(None)
     assert sent == [{"friend_id": "u2"}]
     assert app.toasts == ["Request to Rin cancelled."]
+
+
+def test_new_post_appends_multiple_photo_picks_and_sends_all_images(monkeypatch):
+    from fakes import walk
+    from flet.controls.base_control import BaseControl
+    from views import social
+
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content))
+        return httpx.Response(200, json={"success": True, "gold_awarded": 0})
+
+    class Picked:
+        def __init__(self, name):
+            self.name, self.bytes = name, b"source"
+
+    class Picker:
+        async def pick_files(self, **kwargs):
+            assert kwargs["allow_multiple"] is True
+            return [Picked("one.jpg"), Picked("two.jpg")]
+
+    app = FakeApp(handler, profile={"username": "ash"})
+    app.picker = Picker()
+    monkeypatch.setattr(social, "prepare_jpeg", lambda data, name: (b"jpeg-" + name.encode()))
+    monkeypatch.setattr(BaseControl, "update", lambda self: None)
+    social.new_post(app, "fitness", lambda: None)
+    add = next(c for c in walk(app.dialogs[-1]) if getattr(c, "content", None) == "Add photo")
+    asyncio.run(add.on_click(None))
+    fields(app.dialogs[-1])["What did you do today?"].value = "Leg day completed."
+    button(app.dialogs[-1], "Post").on_click(None)
+    assert sent[0]["images_base64"] == [
+        "anBlZy1vbmUuanBn", "anBlZy10d28uanBn"
+    ]
 
 
 def chat_with(messages: list[dict]):
