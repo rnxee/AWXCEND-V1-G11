@@ -142,6 +142,99 @@ def image_gallery(app, urls: list[str]) -> ft.Control:
     ], wrap=True, spacing=8, run_spacing=8)
 
 
+def comments_dialog(app, post: dict) -> None:
+    """Show a persistent comment thread and let the user reply at any depth."""
+    comments_box = ft.Column([ui.loading()], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+    composer = ui.field("Write a comment", multiline=True, max_lines=3, max_length=1000, expand=True)
+    reply_note = ui.body("", size=11, color=ui.C.accent, visible=False)
+    state = {"reply_to": None}
+
+    def begin_reply(comment):
+        state["reply_to"] = comment["id"]
+        reply_note.value = f"Replying to {(comment.get('user') or {}).get('username', 'this comment')}"
+        reply_note.visible = True
+        composer.focus()
+        app.page.update()
+
+    def clear_reply(e=None):
+        state["reply_to"] = None
+        reply_note.value, reply_note.visible = "", False
+        app.page.update()
+
+    def render(comments):
+        children: dict[str | None, list[dict]] = {}
+        for comment in comments:
+            children.setdefault(comment.get("parent_comment_id"), []).append(comment)
+
+        def branch(parent, depth=0, seen=None):
+            seen = seen or set()
+            controls = []
+            for comment in children.get(parent, []):
+                if comment["id"] in seen:
+                    continue
+                seen.add(comment["id"])
+                user = comment.get("user") or {}
+                actions = [ui.button("Reply", lambda e, comment=comment: begin_reply(comment), kind="text")]
+                card = ft.Container(ft.Column([
+                    ft.Row([ui.avatar(user.get("username", "?"), 28),
+                            ft.Column([ft.Text(user.get("username", "deleted user"), color=ui.C.text,
+                                               font_family="LatoBold"),
+                                       ui.body(f"{ui.when(comment.get('created_at'))}"
+                                               + (" · edited" if comment.get("edited_at") else ""), size=10)],
+                                      spacing=0, expand=True)], spacing=8),
+                    ft.Text(comment.get("content", ""), color=ui.C.text, selectable=True),
+                    ft.Row(actions, spacing=0),
+                ], spacing=5), padding=ft.Padding.only(left=min(depth, 8) * 18, top=6, bottom=6))
+                controls.append(card)
+                controls.extend(branch(comment["id"], depth + 1, seen))
+            return controls
+
+        comments_box.controls = branch(None) or [ui.empty("No comments yet. Start the conversation.", ft.Icons.FORUM_OUTLINED)]
+        comments_box.update()
+
+    def load():
+        try:
+            comments = app.api.call("post-comments", params={"post_id": post["id"]}).get("comments", [])
+        except ApiError as ex:
+            comments_box.controls = [ui.error_box(str(ex), lambda: app.run(load))]
+            app.page.update()
+            return
+        render(comments)
+        app.page.update()
+
+    def submit(e=None):
+        content = composer.value.strip()
+        if not content:
+            app.toast("Write a comment first.", error=True)
+            return
+        body = {"action": "add", "post_id": post["id"], "content": content,
+                "parent_comment_id": state["reply_to"]}
+        composer.value = ""
+        clear_reply()
+
+        def work():
+            try:
+                app.api.call("post-comments", "POST", body)
+            except ApiError as ex:
+                composer.value = content
+                app.toast(str(ex), error=True)
+                app.page.update()
+                return
+            load()
+        app.run(work)
+
+    app.page.show_dialog(ft.AlertDialog(
+        title=ft.Text("Comments"),
+        content=ft.Column([comments_box, reply_note,
+                           ft.Row([composer, ft.IconButton(ft.Icons.SEND, on_click=submit,
+                                                           tooltip="Send comment", icon_color=ui.C.primary)],
+                                  vertical_alignment=ft.CrossAxisAlignment.END)],
+                          tight=True, width=min(560, max(300, (getattr(app.page, "width", None) or 480) - 32)),
+                          height=min(660, max(360, (getattr(app.page, "height", None) or 800) * 0.75))),
+        actions=[ui.button("Close", lambda e: app.close_dialog(), kind="text")]))
+    app.run(load)
+
+
 def chat_panel(app, fetch, send, bubble, poll_s: float, hint: str, mine=None, change=None) -> ft.Control:
     """Messages newest at the bottom, 'Load older' paging, polling for new ones, and a composer.
     fetch(before) -> (messages oldest-first, has_more); send(text); bubble(msg) -> control.
@@ -328,6 +421,10 @@ def feed(app) -> ft.Control:
                                  color=ui.C.food, size=13))
             if p.get("ingredients"):
                 parts.append(ui.body(f"Ingredients: {p['ingredients']}", size=13))
+        parts.append(ft.Row([
+            ui.button(f"Comments ({p.get('comment_count', 0)})", lambda e: comments_dialog(app, p),
+                      icon=ft.Icons.FORUM_OUTLINED, kind="text")
+        ], alignment=ft.MainAxisAlignment.END))
         return ui.card(ft.Column(parts, spacing=10))
 
     def confirm_delete(p):

@@ -73,10 +73,22 @@ Deno.serve(async (req) => {
     items.push({ id: row.id, url: row.image_url })
     imageItemsByPost.set(row.post_id, items)
   }
+  const { data: commentRows, error: commentError } = postIds.length
+    ? await admin.from('gymmunity_comments').select('post_id').in('post_id', postIds)
+    : { data: [], error: null }
+  if (commentError) {
+    return new Response(JSON.stringify({ success: false, error: commentError.message }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const commentCounts = new Map<string, number>()
+  for (const row of commentRows ?? []) commentCounts.set(row.post_id, (commentCounts.get(row.post_id) ?? 0) + 1)
   const withImages = posts.map(post => ({
     ...post,
     images: imagesByPost.get(post.id) ?? (post.image_url ? [post.image_url] : []),
     image_items: imageItemsByPost.get(post.id) ?? (post.image_url ? [{ id: null, url: post.image_url }] : []),
+    comment_count: commentCounts.get(post.id) ?? 0,
   }))
 
   return new Response(JSON.stringify({ success: true, posts: withImages }), {
