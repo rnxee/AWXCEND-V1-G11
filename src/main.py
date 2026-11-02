@@ -197,6 +197,11 @@ class App:
         """
         if self.stack:
             self.back()
+        elif self.in_main and self.tab != "home":
+            # The tab shell is the app's second navigation level.  Back from
+            # Train/Food/Social/Profile must first return to the dashboard;
+            # only a second back from the Home root exits the app.
+            self.go("home")
         elif self.in_main:
             self._exit_window()
 
