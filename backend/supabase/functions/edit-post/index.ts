@@ -122,33 +122,36 @@ Deno.serve(async (req) => {
     usedOrders.add(sort_order)
     return { post_id: post.id, user_id: user.id, image_url: image.url, storage_path: image.path, sort_order }
   })
-  if (newRows.length) {
-    const { error: insertError } = await admin.from('gymmunity_post_images').insert(newRows)
-    if (insertError) {
-      await cleanupUploaded()
-      return json({ success: false, error: `Image record failed: ${insertError.message}` }, 400)
-    }
-  }
-
   const legacyUrl = keepLegacy && post.image_url && current.length === 0 ? post.image_url : null
   const firstUrl = legacyUrl ?? retained[0]?.image_url ?? uploaded[0]?.url ?? null
+  const restoreRemoved = async () => {
+    if (removed.length) await admin.from('gymmunity_post_images').insert(removed.map(image => ({
+      id: image.id, post_id: post.id, user_id: user.id, image_url: image.image_url,
+      storage_path: image.storage_path, sort_order: image.sort_order,
+    })))
+  }
   const { error: removeError } = removed.length
     ? await admin.from('gymmunity_post_images').delete().in('id', removed.map(image => image.id)).eq('user_id', user.id)
     : { error: null }
   if (removeError) {
-    if (newRows.length) await admin.from('gymmunity_post_images').delete().in('storage_path', uploaded.map(image => image.path))
     await cleanupUploaded()
     return json({ success: false, error: 'Could not update the post images.' }, 500)
+  }
+  if (newRows.length) {
+    const { error: insertError } = await admin.from('gymmunity_post_images').insert(newRows)
+    if (insertError) {
+      await restoreRemoved()
+      await cleanupUploaded()
+      return json({ success: false, error: `Image record failed: ${insertError.message}` }, 400)
+    }
   }
 
   const { data: updated, error: updateError } = await admin.from('gymmunity_posts').update({
     content, title: title || null, ingredients: ingredients || null, calories, protein, carbs, fat, image_url: firstUrl,
   }).eq('id', post.id).eq('user_id', user.id).select().single()
   if (updateError || !updated) {
-    if (removed.length) await admin.from('gymmunity_post_images').insert(removed.map(image => ({
-      post_id: post.id, user_id: user.id, image_url: image.image_url, storage_path: image.storage_path, sort_order: image.sort_order,
-    })))
     if (newRows.length) await admin.from('gymmunity_post_images').delete().in('storage_path', uploaded.map(image => image.path))
+    await restoreRemoved()
     await cleanupUploaded()
     return json({ success: false, error: updateError?.message ?? 'Could not update the post.' }, 400)
   }
