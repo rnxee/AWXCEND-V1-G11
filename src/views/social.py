@@ -161,6 +161,30 @@ def comments_dialog(app, post: dict) -> None:
         reply_note.value, reply_note.visible = "", False
         app.page.update()
 
+    def choose_reaction(comment):
+        options = [("like", "Like"), ("love", "Love"), ("fire", "Fire"), ("strong", "Strong")]
+
+        def pick(reaction):
+            app.close_dialog()
+
+            def work():
+                try:
+                    app.api.call("post-comments", "POST", {"action": "react", "comment_id": comment["id"],
+                                                             "reaction": reaction})
+                except ApiError as ex:
+                    app.toast(str(ex), error=True)
+                    return
+                load()
+            app.run(work)
+
+        app.page.show_dialog(ft.AlertDialog(
+            title=ft.Text("React to comment"),
+            content=ft.Column([ui.button(label, lambda e, value=value: pick(value), kind="text")
+                               for value, label in options] + [
+                                   ui.button("Remove reaction", lambda e: pick(None), kind="ghost")],
+                              tight=True),
+            actions=[ui.button("Cancel", lambda e: app.close_dialog(), kind="text")]))
+
     def render(comments):
         children: dict[str | None, list[dict]] = {}
         for comment in comments:
@@ -174,7 +198,14 @@ def comments_dialog(app, post: dict) -> None:
                     continue
                 seen.add(comment["id"])
                 user = comment.get("user") or {}
-                actions = [ui.button("Reply", lambda e, comment=comment: begin_reply(comment), kind="text")]
+                counts = comment.get("reaction_counts") or {}
+                reaction_total = sum(counts.values())
+                current_reaction = comment.get("my_reaction")
+                reaction_label = (current_reaction.title() if current_reaction else "React") + f" ({reaction_total})"
+                actions = [
+                    ui.button(reaction_label, lambda e, comment=comment: choose_reaction(comment), kind="text"),
+                    ui.button("Reply", lambda e, comment=comment: begin_reply(comment), kind="text"),
+                ]
                 card = ft.Container(ft.Column([
                     ft.Row([ui.avatar(user.get("username", "?"), 28),
                             ft.Column([ft.Text(user.get("username", "deleted user"), color=ui.C.text,
