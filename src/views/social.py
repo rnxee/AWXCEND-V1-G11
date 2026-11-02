@@ -14,6 +14,10 @@ REPORT_REASONS = [("harassment", "Harassment or bullying"), ("spam", "Spam"), ("
 MAX_IMAGE = 1_900_000  # create-post takes JPEGs up to ~2 MB
 MAX_CHAT_WORDS = 100  # chat-send and send-dm refuse more (MAX_CHAT_WORDS in _shared/validation.ts)
 EDIT_WINDOW = timedelta(minutes=15)  # EDIT_WINDOW_MINUTES in _shared/messageRules.ts
+REPORT_ATTACHMENT_EXTENSIONS = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                                "webp": "image/webp", "pdf": "application/pdf"}
+MAX_REPORT_ATTACHMENTS = 5
+MAX_REPORT_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
 
 def too_long(text: str) -> str | None:
@@ -39,6 +43,11 @@ def prepare_jpeg(data: bytes, name: str) -> bytes | None:
         if ok and len(jpg) <= MAX_IMAGE:
             return jpg.tobytes()
     return None
+
+
+def report_attachment_mime(name: str) -> str | None:
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return REPORT_ATTACHMENT_EXTENSIONS.get(suffix)
 
 
 # ---- shared bits ----------------------------------------------------------------

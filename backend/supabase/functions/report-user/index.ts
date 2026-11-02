@@ -15,6 +15,31 @@ const MESSAGE_TYPES = ['chat', 'dm']
 
 const ALLOWED_REASONS = ['harassment', 'spam', 'impersonation', 'inappropriate_content', 'cheating', 'other']
 const MAX_DETAILS_LENGTH = 500
+const MAX_ATTACHMENTS = 5
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const ATTACHMENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+
+function bytesFor(raw: string): Uint8Array | null {
+  try {
+    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0))
+    return bytes.length ? bytes : null
+  } catch {
+    return null
+  }
+}
+
+function matchesSignature(bytes: Uint8Array, mime: string): boolean {
+  if (mime === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+  if (mime === 'image/png') return bytes.length >= 8 && bytes.slice(0, 8).every((b, i) => b === [137, 80, 78, 71, 13, 10, 26, 10][i])
+  if (mime === 'image/webp') return bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
+    new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP'
+  if (mime === 'application/pdf') return new TextDecoder().decode(bytes.slice(0, 5)) === '%PDF-'
+  return false
+}
+
+function extensionFor(mime: string): string {
+  return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' } as Record<string, string>)[mime]
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -41,6 +66,7 @@ Deno.serve(async (req) => {
   const details = cleanText(body.details).slice(0, MAX_DETAILS_LENGTH)
   const messageType = body.message_type ?? null
   const messageId = body.message_id ?? null
+  const rawAttachments = body.attachments === undefined ? [] : body.attachments
 
   const errors: string[] = []
   if (!reportedUserId) errors.push('reported_user_id is required')
@@ -56,6 +82,25 @@ Deno.serve(async (req) => {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
+  }
+
+  if (!Array.isArray(rawAttachments) || rawAttachments.length > MAX_ATTACHMENTS) {
+    return new Response(JSON.stringify({ success: false, error: `attachments must contain at most ${MAX_ATTACHMENTS} files` }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const attachments: { name: string; mime_type: string; bytes: Uint8Array }[] = []
+  for (const item of rawAttachments as unknown[]) {
+    const a = item as { name?: unknown; mime_type?: unknown; data_base64?: unknown } | null
+    const name = typeof a?.name === 'string' ? a.name.trim().slice(0, 255) : ''
+    const mime = typeof a?.mime_type === 'string' ? a.mime_type.trim().toLowerCase() : ''
+    const bytes = typeof a?.data_base64 === 'string' ? bytesFor(a.data_base64) : null
+    if (!name || !ATTACHMENT_TYPES.has(mime) || !bytes || bytes.length > MAX_ATTACHMENT_BYTES || !matchesSignature(bytes, mime)) {
+      return new Response(JSON.stringify({ success: false, error: 'Each attachment must be a valid JPG, PNG, WEBP, or PDF no larger than 5 MB.' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    attachments.push({ name, mime_type: mime, bytes })
   }
 
   const admin = getAdminClient()
@@ -109,6 +154,28 @@ Deno.serve(async (req) => {
     })
   }
 
+  const uploadedPaths: string[] = []
+  try {
+    for (const attachment of attachments) {
+      const path = `${user.id}/user-report-${report.id}/${crypto.randomUUID()}.${extensionFor(attachment.mime_type)}`
+      const { error: uploadError } = await admin.storage.from('bug-report-evidence').upload(path, attachment.bytes, {
+        contentType: attachment.mime_type, upsert: false,
+      })
+      if (uploadError) throw new Error(`Attachment upload failed: ${uploadError.message}`)
+      uploadedPaths.push(path)
+      const { error: rowError } = await admin.from('user_report_attachments').insert({
+        user_report_id: report.id, user_id: user.id, original_name: attachment.name,
+        storage_path: path, mime_type: attachment.mime_type, size_bytes: attachment.bytes.length,
+      })
+      if (rowError) throw new Error(`Attachment record failed: ${rowError.message}`)
+    }
+  } catch (error) {
+    if (uploadedPaths.length) await admin.storage.from('bug-report-evidence').remove(uploadedPaths)
+    await admin.from('user_reports').delete().eq('id', report.id).eq('reporter_id', user.id)
+    return new Response(JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Attachment upload failed' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
   return new Response(JSON.stringify({ success: true, report }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
