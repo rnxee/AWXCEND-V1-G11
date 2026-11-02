@@ -60,7 +60,32 @@ Deno.serve(async (req) => {
     })
   }
 
-  return new Response(JSON.stringify({ success: true, reports: data ?? [] }), {
+  const reports = data ?? []
+  const reportIds = reports.map(report => report.id)
+  const { data: attachmentRows, error: attachmentError } = reportIds.length
+    ? await admin.from('user_report_attachments')
+      .select('user_report_id, original_name, mime_type, size_bytes, storage_path')
+      .in('user_report_id', reportIds)
+    : { data: [], error: null }
+  if (attachmentError) {
+    return new Response(JSON.stringify({ success: false, error: attachmentError.message }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const paths = (attachmentRows ?? []).map(row => row.storage_path)
+  const { data: signed } = paths.length
+    ? await admin.storage.from('bug-report-evidence').createSignedUrls(paths, 3600)
+    : { data: [] }
+  const signedByPath = new Map((signed ?? []).map(item => [item.path, item.signedUrl]))
+  const byReport = new Map<string, unknown[]>()
+  for (const row of attachmentRows ?? []) {
+    const list = byReport.get(row.user_report_id) ?? []
+    list.push({ original_name: row.original_name, mime_type: row.mime_type, size_bytes: row.size_bytes,
+      signed_url: signedByPath.get(row.storage_path) ?? null })
+    byReport.set(row.user_report_id, list)
+  }
+  const withAttachments = reports.map(report => ({ ...report, attachments: byReport.get(report.id) ?? [] }))
+  return new Response(JSON.stringify({ success: true, reports: withAttachments }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })
